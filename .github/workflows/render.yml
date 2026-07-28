@@ -82,7 +82,6 @@ jobs:
         if: always()
         shell: bash
         env:
-          DRIVE_FOLDER_ID: ${{ secrets.DRIVE_FOLDER_ID }}
           RCLONE_CONFIG_B64: ${{ secrets.RCLONE_CONFIG_B64 }}
           JOB_ID: ${{ steps.request.outputs.job_id }}
         run: |
@@ -92,7 +91,7 @@ jobs:
             >"$RUNNER_TEMP/private-upload.log" 2>&1; then
             echo "Private Drive upload completed."
           else
-            echo "Private Drive upload failed. Check the configured Drive secrets."
+            echo "Private Drive upload failed. Check the configured Drive secret."
             exit 1
           fi
 
