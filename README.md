@@ -10,7 +10,7 @@ The public repository contains only rendering, validation, review-asset, and pac
 2. Checks out the private source with a repository-scoped, read-only token.
 3. Installs dependencies, runs the source project's checks, and renders the configured Remotion composition.
 4. Creates a compressed review MP4, contact sheet, keyframes, metadata, checksums, and a private build log.
-5. Uploads the complete result directly to a private Google Drive folder.
+5. Uploads the complete result through a least-privilege Google Drive credential that can access only files and folders created by this rclone remote.
 6. Publishes no render artifact and no detailed private build output in the public repository.
 
 ## Trigger model
@@ -29,13 +29,14 @@ The private Remotion repository must contain `remotion-worker.json`. See [`docs/
 
 ## Setup
 
-See [`docs/SETUP.md`](docs/SETUP.md). The worker requires four GitHub Actions secrets:
+See [`docs/SETUP.md`](docs/SETUP.md). The worker requires three GitHub Actions secrets:
 
 - `SOURCE_REPOSITORY`
 - `SOURCE_REPO_TOKEN`
-- `DRIVE_FOLDER_ID`
 - `RCLONE_CONFIG_B64`
 
 ## Security
+
+The upload script rejects any rclone configuration whose `gdrive` remote does not use the exact `drive.file` OAuth scope. This prevents the worker from reading or modifying unrelated files already in the connected Google Drive account.
 
 See [`SECURITY.md`](SECURITY.md). In particular, keep write access to this public repository limited: anyone who can create a same-repository `render/*` branch can cause the workflow to use its configured secrets.

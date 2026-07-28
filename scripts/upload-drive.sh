@@ -14,8 +14,8 @@ if [ ! -d "$RESULT_DIR" ]; then
   exit 66
 fi
 
-if [ -z "${DRIVE_FOLDER_ID:-}" ] || [ -z "${RCLONE_CONFIG_B64:-}" ]; then
-  echo "Drive upload secrets are not configured." >&2
+if [ -z "${RCLONE_CONFIG_B64:-}" ]; then
+  echo "The Drive upload secret is not configured." >&2
   exit 65
 fi
 
@@ -35,14 +35,29 @@ if ! rclone listremotes --config "$RCLONE_CONFIG_FILE" | grep -qx 'gdrive:'; the
   exit 65
 fi
 
+RCLONE_SCOPE="$(awk '
+  /^\[gdrive\]$/ { in_remote=1; next }
+  /^\[/ { if (in_remote) exit }
+  in_remote && /^[[:space:]]*scope[[:space:]]*=/ {
+    sub(/^[^=]*=[[:space:]]*/, "", $0)
+    sub(/[[:space:]]*$/, "", $0)
+    print
+    exit
+  }
+' "$RCLONE_CONFIG_FILE")"
+
+if [ "$RCLONE_SCOPE" != "drive.file" ]; then
+  echo "The gdrive remote must use the least-privilege drive.file scope." >&2
+  exit 65
+fi
+
 printf 'Upload completed at %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
   > "$RESULT_DIR/upload-complete.txt"
 
 rclone copy \
   "$RESULT_DIR" \
-  "gdrive:$JOB_ID" \
+  "gdrive:Telic-Renders/$JOB_ID" \
   --config "$RCLONE_CONFIG_FILE" \
-  --drive-root-folder-id "$DRIVE_FOLDER_ID" \
   --transfers 4 \
   --checkers 8 \
   --stats 0 \
