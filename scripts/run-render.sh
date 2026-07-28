@@ -11,6 +11,11 @@ SOURCE_DIR="$2"
 OUTPUT_DIR="$3"
 WORKER_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
+if [ ! -f "$REQUEST_FILE" ]; then
+  echo "Render request file does not exist." >&2
+  exit 66
+fi
+
 mkdir -p "$OUTPUT_DIR"
 SOURCE_DIR="$(cd "$SOURCE_DIR" && pwd)"
 OUTPUT_DIR="$(cd "$OUTPUT_DIR" && pwd)"
@@ -48,13 +53,19 @@ INSTALL_COMMAND="$(json_field installCommand)"
 CHECK_COMMAND="$(json_field checkCommand)"
 CRF="$(json_field crf)"
 FINAL_VIDEO="$OUTPUT_DIR/${OUTPUT_NAME}.mp4"
+REMOTION_BIN="$SOURCE_DIR/node_modules/.bin/remotion"
 
 cd "$SOURCE_DIR"
 
-bash -lc "$INSTALL_COMMAND"
-bash -lc "$CHECK_COMMAND"
+bash -o pipefail -c "$INSTALL_COMMAND"
+bash -o pipefail -c "$CHECK_COMMAND"
 
-npx --no-install remotion render \
+if [ ! -x "$REMOTION_BIN" ]; then
+  echo "The Remotion CLI was not installed by the configured install command." >&2
+  exit 69
+fi
+
+"$REMOTION_BIN" render \
   "$ENTRY_POINT" \
   "$COMPOSITION_ID" \
   "$FINAL_VIDEO" \
