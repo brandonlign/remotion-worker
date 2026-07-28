@@ -1,0 +1,8 @@
+{
+  "entryPoint": "src/index.ts",
+  "compositionId": "TheOldLLMAd",
+  "outputName": "telic-review",
+  "installCommand": "npm ci --no-audit --no-fund",
+  "checkCommand": "npm run lint",
+  "crf": 23
+}
