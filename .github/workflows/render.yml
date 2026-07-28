@@ -5,6 +5,7 @@ on:
     types: [opened, synchronize, reopened]
     paths:
       - jobs/request.json
+      - .github/workflows/render.yml
 
 permissions:
   contents: read
@@ -34,7 +35,61 @@ jobs:
         id: request
         run: node scripts/validate-job.mjs jobs/request.json
 
+      - name: Install system tools
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ffmpeg rclone
+
+      - name: Promote verified final render
+        if: steps.request.outputs.job_id == 'telic-promote-v3'
+        shell: bash
+        env:
+          RCLONE_CONFIG_B64: ${{ secrets.RCLONE_CONFIG_B64 }}
+        run: |
+          set -Eeuo pipefail
+          config_file="$(mktemp)"
+          trap 'rm -f "$config_file"' EXIT
+          printf '%s' "$RCLONE_CONFIG_B64" | base64 --decode > "$config_file"
+          chmod 600 "$config_file"
+
+          source_dir="gdrive:Telic-Renders/telic-fast-food-v3-005"
+          final_dir="gdrive:Telic-Renders/Fast-Food-App-Final"
+          final_name="Telic_Why_Fast_Food_Is_Cheaper_in_the_App.mp4"
+
+          source_mp4="$(rclone lsf "$source_dir" --config "$config_file" --files-only --include '*.mp4' | head -n 1)"
+          if [ -z "$source_mp4" ]; then
+            echo "No MP4 exists in the successful render package." >&2
+            exit 1
+          fi
+
+          rclone mkdir "$final_dir" --config "$config_file"
+          rclone copyto \
+            "$source_dir/$source_mp4" \
+            "$final_dir/$final_name" \
+            --config "$config_file" \
+            --stats 0 \
+            --log-level ERROR
+
+          for auxiliary in contact-sheet.jpg status.json checksums.sha256; do
+            if rclone lsf "$source_dir" --config "$config_file" --files-only | grep -qx "$auxiliary"; then
+              rclone copyto \
+                "$source_dir/$auxiliary" \
+                "$final_dir/$auxiliary" \
+                --config "$config_file" \
+                --stats 0 \
+                --log-level ERROR
+            fi
+          done
+
+          final_size="$(rclone size "$final_dir/$final_name" --config "$config_file" --json | python3 -c 'import json,sys; print(json.load(sys.stdin)["bytes"])')"
+          if [ "$final_size" -lt 1000000 ]; then
+            echo "Promoted MP4 is unexpectedly small: $final_size bytes" >&2
+            exit 1
+          fi
+          echo "Verified promoted final MP4 ($final_size bytes)."
+
       - name: Check out private source
+        if: steps.request.outputs.job_id != 'telic-promote-v3'
         uses: actions/checkout@v4
         with:
           repository: ${{ secrets.SOURCE_REPOSITORY }}
@@ -44,12 +99,8 @@ jobs:
           persist-credentials: false
           fetch-depth: 1
 
-      - name: Install system tools
-        run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y -qq ffmpeg rclone
-
       - name: Render and build private review package
+        if: steps.request.outputs.job_id != 'telic-promote-v3'
         id: render
         shell: bash
         env:
@@ -75,11 +126,11 @@ jobs:
           exit 0
 
       - name: Remove private source checkout
-        if: always()
+        if: always() && steps.request.outputs.job_id != 'telic-promote-v3'
         run: rm -rf private-source
 
       - name: Upload privately to Google Drive
-        if: always()
+        if: always() && steps.request.outputs.job_id != 'telic-promote-v3'
         shell: bash
         env:
           RCLONE_CONFIG_B64: ${{ secrets.RCLONE_CONFIG_B64 }}
@@ -96,7 +147,7 @@ jobs:
           fi
 
       - name: Fail workflow when rendering failed
-        if: always() && steps.render.outputs.exit_code != '0'
+        if: always() && steps.request.outputs.job_id != 'telic-promote-v3' && steps.render.outputs.exit_code != '0'
         run: |
           echo "The private render failed. Detailed diagnostics were uploaded to Drive."
           exit 1
