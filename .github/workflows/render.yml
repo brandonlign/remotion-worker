@@ -5,6 +5,7 @@ on:
     types: [opened, synchronize, reopened]
     paths:
       - jobs/request.json
+      - .github/workflows/render.yml
 
 permissions:
   contents: read
@@ -34,7 +35,42 @@ jobs:
         id: request
         run: node scripts/validate-job.mjs jobs/request.json
 
+      - name: Install system tools
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ffmpeg rclone
+
+      - name: Clean Telic render folder
+        if: steps.request.outputs.job_id == 'telic-cleanup'
+        shell: bash
+        env:
+          RCLONE_CONFIG_B64: ${{ secrets.RCLONE_CONFIG_B64 }}
+        run: |
+          set -Eeuo pipefail
+          config_file="$(mktemp)"
+          trap 'rm -f "$config_file"' EXIT
+          printf '%s' "$RCLONE_CONFIG_B64" | base64 --decode > "$config_file"
+          chmod 600 "$config_file"
+          rclone delete "gdrive:Telic-Renders" \
+            --config "$config_file" \
+            --drive-use-trash=false \
+            --stats 0 \
+            --log-level ERROR
+          rclone rmdirs "gdrive:Telic-Renders" \
+            --leave-root \
+            --config "$config_file" \
+            --drive-use-trash=false \
+            --stats 0 \
+            --log-level ERROR
+          remaining="$(rclone lsf "gdrive:Telic-Renders" --config "$config_file" --max-depth 1)"
+          if [ -n "$remaining" ]; then
+            echo "Telic-Renders is not empty after cleanup." >&2
+            exit 1
+          fi
+          echo "Telic-Renders cleanup verified."
+
       - name: Check out private source
+        if: steps.request.outputs.job_id != 'telic-cleanup'
         uses: actions/checkout@v4
         with:
           repository: ${{ secrets.SOURCE_REPOSITORY }}
@@ -44,12 +80,8 @@ jobs:
           persist-credentials: false
           fetch-depth: 1
 
-      - name: Install system tools
-        run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y -qq ffmpeg rclone
-
       - name: Render and build private review package
+        if: steps.request.outputs.job_id != 'telic-cleanup'
         id: render
         shell: bash
         env:
@@ -75,11 +107,11 @@ jobs:
           exit 0
 
       - name: Remove private source checkout
-        if: always()
+        if: always() && steps.request.outputs.job_id != 'telic-cleanup'
         run: rm -rf private-source
 
       - name: Upload privately to Google Drive
-        if: always()
+        if: always() && steps.request.outputs.job_id != 'telic-cleanup'
         shell: bash
         env:
           RCLONE_CONFIG_B64: ${{ secrets.RCLONE_CONFIG_B64 }}
@@ -96,7 +128,7 @@ jobs:
           fi
 
       - name: Fail workflow when rendering failed
-        if: always() && steps.render.outputs.exit_code != '0'
+        if: always() && steps.request.outputs.job_id != 'telic-cleanup' && steps.render.outputs.exit_code != '0'
         run: |
           echo "The private render failed. Detailed diagnostics were uploaded to Drive."
           exit 1
