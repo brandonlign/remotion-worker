@@ -1,0 +1,8 @@
+node_modules/
+out/
+.DS_Store
+*.log
+*.tmp
+.env
+.env.*
+rclone.conf
