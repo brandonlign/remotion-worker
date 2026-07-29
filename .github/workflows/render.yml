@@ -105,6 +105,32 @@ jobs:
           echo "Private Drive upload failed after retries."
           exit 1
 
+      - name: Promote verified final MP4
+        if: always() && steps.render.outputs.exit_code == '0'
+        shell: bash
+        env:
+          RCLONE_CONFIG_B64: ${{ secrets.RCLONE_CONFIG_B64 }}
+          JOB_ID: ${{ steps.request.outputs.job_id }}
+        run: |
+          set -Eeuo pipefail
+          config="$(mktemp)"
+          trap 'rm -f "$config"' EXIT
+          printf '%s' "$RCLONE_CONFIG_B64" | base64 --decode > "$config"
+          chmod 600 "$config"
+
+          source_file="$RUNNER_TEMP/render-result/telic-duolingo-streak-freeze.mp4"
+          final_dir="gdrive:Telic-Renders/FINAL - Duolingo Streak Freeze - FIXED"
+          final_file="$final_dir/FINAL_Duolingo_Streak_Freeze.mp4"
+
+          test -s "$source_file"
+          rclone mkdir "$final_dir" --config "$config" --log-level ERROR
+          rclone copyto "$source_file" "$final_file" --config "$config" --stats 0 --log-level ERROR
+          rclone lsf "$final_dir" --files-only --config "$config" --log-level ERROR | grep -Fxq 'FINAL_Duolingo_Streak_Freeze.mp4'
+
+          # Remove only this temporary job package after the final copy is verified.
+          rclone purge "gdrive:Telic-Renders/$JOB_ID" --config "$config" --log-level ERROR || true
+          echo "Verified final Duolingo MP4 promotion."
+
       - name: Fail workflow when rendering failed
         if: always() && steps.render.outputs.exit_code != '0'
         run: |
