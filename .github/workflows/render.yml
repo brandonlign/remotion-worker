@@ -1,4 +1,4 @@
-name: Render private Remotion source
+name: Cleanup private Duolingo render folder
 
 on:
   pull_request:
@@ -10,103 +10,53 @@ permissions:
   contents: read
 
 concurrency:
-  group: remotion-render-${{ github.event.pull_request.number }}
+  group: remotion-cleanup-${{ github.event.pull_request.number }}
   cancel-in-progress: true
 
 jobs:
-  render:
+  cleanup:
     if: >-
       github.event.pull_request.head.repo.full_name == github.repository &&
       startsWith(github.head_ref, 'render/')
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 10
 
     steps:
       - name: Check out worker
         uses: actions/checkout@v4
 
-      - name: Set up Node
-        uses: actions/setup-node@v4
-        with:
-          node-version: 22
-
-      - name: Validate render request
-        id: request
-        run: node scripts/validate-job.mjs jobs/request.json
-
-      - name: Check out private source
-        uses: actions/checkout@v4
-        with:
-          repository: ${{ secrets.SOURCE_REPOSITORY }}
-          ref: ${{ steps.request.outputs.source_sha }}
-          token: ${{ secrets.SOURCE_REPO_TOKEN }}
-          path: private-source
-          persist-credentials: false
-          fetch-depth: 1
-
-      - name: Install system tools
+      - name: Install rclone
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y -qq ffmpeg rclone
+          sudo apt-get install -y -qq rclone
 
-      - name: Render and build private review package
-        id: render
+      - name: Remove exact audited Duolingo render folder
         shell: bash
         env:
-          JOB_ID: ${{ steps.request.outputs.job_id }}
-          SOURCE_SHA: ${{ steps.request.outputs.source_sha }}
           RCLONE_CONFIG_B64: ${{ secrets.RCLONE_CONFIG_B64 }}
         run: |
-          set +e
-          mkdir -p "$RUNNER_TEMP/render-result"
-          bash scripts/run-render.sh \
-            jobs/request.json \
-            private-source \
-            "$RUNNER_TEMP/render-result" \
-            >"$RUNNER_TEMP/private-build.log" 2>&1
-          code=$?
-          cp "$RUNNER_TEMP/private-build.log" "$RUNNER_TEMP/render-result/private-build.log"
-          printf '%s\n' "$code" > "$RUNNER_TEMP/render-result/exit-code.txt"
-          echo "exit_code=$code" >> "$GITHUB_OUTPUT"
-          echo "Private render exit code: $code"
-          if [ "$code" -eq 0 ]; then
-            echo "Private render completed; uploading results."
-          else
-            echo "Private render failed; uploading the private diagnostic package."
+          set -Eeuo pipefail
+          JOB_ID="$(node -p "require('./jobs/request.json').jobId")"
+          if [ "$JOB_ID" != "r260729-duo-clarity-g8p4" ]; then
+            echo "Unexpected cleanup target." >&2
+            exit 65
           fi
-          exit 0
-
-      - name: Remove private source checkout
-        if: always()
-        run: rm -rf private-source
-
-      - name: Upload privately to Google Drive
-        if: always()
-        shell: bash
-        env:
-          RCLONE_CONFIG_B64: ${{ secrets.RCLONE_CONFIG_B64 }}
-          JOB_ID: ${{ steps.request.outputs.job_id }}
-        run: |
-          for attempt in 1 2 3; do
-            set +e
-            bash scripts/upload-drive.sh \
-              "$RUNNER_TEMP/render-result" \
-              "$JOB_ID" \
-              >"$RUNNER_TEMP/private-upload.log" 2>&1
-            upload_code=$?
-            set -e
-            if [ "$upload_code" -eq 0 ]; then
-              echo "Private Drive upload completed."
-              exit 0
-            fi
-            echo "Private Drive upload attempt $attempt exit code: $upload_code"
-            sleep $((attempt * 5))
-          done
-          echo "Private Drive upload failed after retries."
-          exit 1
-
-      - name: Fail workflow when rendering failed
-        if: always() && steps.render.outputs.exit_code != '0'
-        run: |
-          echo "The private render failed. Detailed diagnostics were uploaded to Drive."
-          exit 1
+          if [ -z "${RCLONE_CONFIG_B64:-}" ]; then
+            echo "Drive credentials are unavailable." >&2
+            exit 65
+          fi
+          CONFIG="$(mktemp)"
+          trap 'rm -f "$CONFIG"' EXIT
+          printf '%s' "$RCLONE_CONFIG_B64" | base64 --decode > "$CONFIG"
+          chmod 600 "$CONFIG"
+          rclone purge "gdrive:Telic-Renders/$JOB_ID" \
+            --config "$CONFIG" \
+            --log-level ERROR || true
+          if rclone lsf "gdrive:Telic-Renders" \
+            --config "$CONFIG" \
+            --dirs-only \
+            --log-level ERROR | grep -Fxq "$JOB_ID/"; then
+            echo "Cleanup target still exists." >&2
+            exit 1
+          fi
+          echo "Audited render-folder cleanup completed."
