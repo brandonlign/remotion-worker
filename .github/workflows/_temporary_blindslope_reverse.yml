@@ -1,4 +1,4 @@
-name: Temporary BlindSlope NISAR config probe
+name: Temporary BlindSlope exact S-band query
 
 on:
   pull_request:
@@ -16,5 +16,11 @@ jobs:
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@v4
-      - name: Fetch live Bhoonidhi NISAR archive identifiers
-        run: python3 scripts/get-bhoonidhi-nisar-config.py
+      - name: Query exact Gangtok NISAR S-band product
+        run: python3 scripts/query-bhoonidhi-gangtok.py
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: bhoonidhi-gangtok-query
+          path: bhoonidhi_gangtok_query
+          if-no-files-found: error
