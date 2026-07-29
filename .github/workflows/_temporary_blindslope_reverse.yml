@@ -1,4 +1,4 @@
-name: Temporary BlindSlope download protocol probe
+name: Temporary BlindSlope download function probe
 
 on:
   pull_request:
@@ -16,9 +16,5 @@ jobs:
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@v4
-      - name: Inspect Bhoonidhi direct-download protocol
-        run: python3 scripts/inspect-bhoonidhi-download.py
-      - uses: actions/upload-artifact@v4
-        with:
-          name: bhoonidhi-download-protocol
-          path: bhoonidhi_download_contexts.json
+      - name: Print exact Bhoonidhi download functions
+        run: python3 scripts/print-bhoonidhi-download-functions.py
