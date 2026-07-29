@@ -10,7 +10,9 @@ import json
 import os
 import subprocess
 import tempfile
+import time
 from pathlib import Path
+from typing import Any
 
 MODULE_PATH = Path(__file__).with_name("drive-cleanup-once.py")
 spec = importlib.util.spec_from_file_location("drive_cleanup_once", MODULE_PATH)
@@ -18,6 +20,60 @@ if spec is None or spec.loader is None:
     raise RuntimeError("Could not load cleanup implementation")
 cleanup = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(cleanup)
+
+
+# Google Drive's shared API project can have a low per-minute query allowance.
+# Pace every request and retry only transient quota/server failures. The cleanup
+# itself is idempotent, so a retry never duplicates a moved file.
+_original_drive_request = cleanup.drive_request
+
+
+def throttled_drive_request(
+    access_token: str,
+    method: str,
+    endpoint: str,
+    *,
+    params: dict[str, str] | None = None,
+    body: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    delays = (0, 15, 30, 60, 90)
+    last_error: RuntimeError | None = None
+    for delay in delays:
+        if delay:
+            time.sleep(delay)
+        try:
+            result = _original_drive_request(
+                access_token,
+                method,
+                endpoint,
+                params=params,
+                body=body,
+            )
+            time.sleep(1.5)
+            return result
+        except RuntimeError as exc:
+            message = str(exc)
+            transient = any(
+                marker in message
+                for marker in (
+                    "rateLimitExceeded",
+                    "Quota exceeded",
+                    "HTTP 429",
+                    "HTTP 500",
+                    "HTTP 502",
+                    "HTTP 503",
+                    "HTTP 504",
+                )
+            )
+            if not transient:
+                raise
+            last_error = exc
+    if last_error is not None:
+        raise last_error
+    raise RuntimeError("Drive request failed without an error")
+
+
+cleanup.drive_request = throttled_drive_request
 
 
 def load_config_with_root_resolution() -> tuple[str, str, str]:
