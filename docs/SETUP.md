@@ -76,7 +76,17 @@ The configuration contains a renewable Google OAuth token. Treat it like a passw
 
 ## 4. Add optional private preparation secrets
 
-Telic render jobs that generate ElevenLabs narration during `prepareCommand` require the public worker repository secret `ELEVENLABS_API_KEY`. Paste the key directly into the encrypted Actions secret. Do not put it in `remotion-worker.json`, the render request, a source file, an issue, a pull request, or a workflow log.
+For automatic Telic narration, create one encrypted repository secret named `ELEVENLABS_API_KEYS_JSON`. Its value must be a JSON array of authorized ElevenLabs API keys in preferred order:
+
+```json
+["key-one", "key-two", "key-three"]
+```
+
+The generator tries the first key and advances only when a key has exhausted quota, is invalid or expired, or lacks required permissions. Temporary concurrency, rate-limit, server-busy, and service errors retry the same key with backoff rather than cycling through the pool. Duplicate keys are ignored. The older `ELEVENLABS_API_KEY` single-key secret remains supported as a fallback.
+
+Keys from the same ElevenLabs workspace normally share that workspace's usage quota. A pool only adds capacity when its keys represent separate authorized credit pools or when per-key credit restrictions differ. Do not use key rotation to evade provider limits or terms.
+
+Do not put any key in `remotion-worker.json`, the render request, a source file, an issue, a pull request, or a workflow log.
 
 The worker repository therefore uses these core secrets:
 
@@ -84,9 +94,10 @@ The worker repository therefore uses these core secrets:
 - `SOURCE_REPO_TOKEN`
 - `RCLONE_CONFIG_B64`
 
-And this Telic narration secret when voiceover generation is enabled:
+And one Telic narration secret when voiceover generation is enabled:
 
-- `ELEVENLABS_API_KEY`
+- `ELEVENLABS_API_KEYS_JSON` — preferred pool
+- `ELEVENLABS_API_KEY` — optional legacy fallback
 
 ## 5. Submit a render request
 
