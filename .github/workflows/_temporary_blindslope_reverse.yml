@@ -1,4 +1,4 @@
-name: Temporary BlindSlope public portal probe
+name: Temporary BlindSlope S-band catalog test
 
 on:
   pull_request:
@@ -13,12 +13,14 @@ jobs:
   probe:
     if: startsWith(github.head_ref, 'render/blindslope')
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
-      - name: Extract public Bhoonidhi search protocol
-        run: python3 scripts/reverse-bhoonidhi-search.py
+      - name: Search Bhoonidhi guest catalogue for NISAR S-band
+        run: python3 scripts/run-bhoonidhi-public-search.py
       - uses: actions/upload-artifact@v4
+        if: always()
         with:
-          name: bhoonidhi-search-protocol
-          path: reverse_bhoonidhi.json
+          name: bhoonidhi-public-search
+          path: bhoonidhi_public_search
+          if-no-files-found: error
