@@ -1,4 +1,4 @@
-name: Temporary BlindSlope S-band catalog test
+name: Temporary BlindSlope NISAR config probe
 
 on:
   pull_request:
@@ -13,14 +13,8 @@ jobs:
   probe:
     if: startsWith(github.head_ref, 'render/blindslope')
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 5
     steps:
       - uses: actions/checkout@v4
-      - name: Search Bhoonidhi guest catalogue for NISAR S-band
-        run: python3 scripts/run-bhoonidhi-public-search.py
-      - uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: bhoonidhi-public-search
-          path: bhoonidhi_public_search
-          if-no-files-found: error
+      - name: Fetch live Bhoonidhi NISAR archive identifiers
+        run: python3 scripts/get-bhoonidhi-nisar-config.py
