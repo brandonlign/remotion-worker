@@ -1,0 +1,24 @@
+name: Temporary BlindSlope public portal probe
+
+on:
+  pull_request:
+    types: [synchronize]
+    paths:
+      - jobs/request.json
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    if: startsWith(github.head_ref, 'render/blindslope')
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Extract public Bhoonidhi search protocol
+        run: python3 scripts/reverse-bhoonidhi-search.py
+      - uses: actions/upload-artifact@v4
+        with:
+          name: bhoonidhi-search-protocol
+          path: reverse_bhoonidhi.json
