@@ -25,7 +25,8 @@ if ! [[ "$JOB_ID" =~ ^[a-z0-9][a-z0-9-]{5,63}$ ]]; then
 fi
 
 RCLONE_CONFIG_FILE="$(mktemp)"
-trap 'rm -f "$RCLONE_CONFIG_FILE"' EXIT
+RCLONE_LOG_FILE="$(mktemp)"
+trap 'rm -f "$RCLONE_CONFIG_FILE" "$RCLONE_LOG_FILE"' EXIT
 
 printf '%s' "$RCLONE_CONFIG_B64" | base64 --decode > "$RCLONE_CONFIG_FILE"
 chmod 600 "$RCLONE_CONFIG_FILE"
@@ -61,6 +62,7 @@ esac
 printf 'Upload completed at %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
   > "$RESULT_DIR/upload-complete.txt"
 
+set +e
 rclone copy \
   "$RESULT_DIR" \
   "gdrive:Telic-Renders/$JOB_ID" \
@@ -68,4 +70,20 @@ rclone copy \
   --transfers 4 \
   --checkers 8 \
   --stats 0 \
-  --log-level ERROR
+  --log-level ERROR \
+  --log-file "$RCLONE_LOG_FILE"
+RCLONE_EXIT=$?
+set -e
+
+if [ "$RCLONE_EXIT" -ne 0 ]; then
+  PARENT_STDERR="/proc/$PPID/fd/2"
+  if [ -w "$PARENT_STDERR" ]; then
+    {
+      echo "::error::Sanitized private Drive upload diagnostic follows."
+      grep -E 'ERROR|Failed|invalid_grant|unauthorized|forbidden|scope|quota|permission|access|token|root' "$RCLONE_LOG_FILE" \
+        | tail -20 \
+        | sed -E 's#https?://[^ ]+#[url-redacted]#g'
+    } > "$PARENT_STDERR"
+  fi
+  exit "$RCLONE_EXIT"
+fi
