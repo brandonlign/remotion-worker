@@ -18,15 +18,19 @@ Filename stem for the full-quality MP4. Only letters, numbers, underscores, and 
 
 ### `installCommand`
 
-One-line command run from the private repository root before checks. Defaults to:
+One-line command run from the private repository root before preparation and checks. Defaults to:
 
 ```text
 npm ci --no-audit --no-fund
 ```
 
+### `prepareCommand`
+
+Optional one-line private preparation command run after installation and before checks. It defaults to `true` and is intended for trusted build-time tasks such as generating a voiceover from a repository secret, preparing private assets, or writing timing metadata. The command and its output remain inside the ephemeral private-source checkout unless the rendered result intentionally uses them.
+
 ### `checkCommand`
 
-One-line command run after installation. Defaults to:
+One-line command run after preparation. Defaults to:
 
 ```text
 npm run lint
@@ -44,6 +48,7 @@ H.264 constant-rate-factor value from 1 through 51. Lower values produce higher 
   "compositionId": "TheOldLLMAd",
   "outputName": "telic-review",
   "installCommand": "npm ci --no-audit --no-fund",
+  "prepareCommand": "true",
   "checkCommand": "npm run lint",
   "crf": 23
 }
