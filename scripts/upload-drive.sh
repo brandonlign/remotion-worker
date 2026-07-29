@@ -50,12 +50,28 @@ case "$RCLONE_SCOPE" in
     ;;
 esac
 
+# The previous production cleanup removed the folder stored in the old rclone
+# root_folder_id. Clear that stale pointer for this render-only branch so one
+# isolated job folder can be created at the accessible Drive root.
+python3 - "$RCLONE_CONFIG_FILE" <<'PY'
+import configparser
+import os
+import sys
+
+path = sys.argv[1]
+parser = configparser.RawConfigParser()
+parser.read(path)
+if "gdrive" not in parser:
+    raise SystemExit("The rclone configuration has no gdrive section.")
+parser.remove_option("gdrive", "root_folder_id")
+with open(path, "w", encoding="utf-8") as handle:
+    parser.write(handle, space_around_delimiters=True)
+os.chmod(path, 0o600)
+PY
+
 printf 'Upload completed at %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
   > "$RESULT_DIR/upload-complete.txt"
 
-# This render-only branch uses one isolated folder visible to the least-
-# privilege rclone app. The folder is moved into Telic Production after the
-# package is verified and the temporary pull request is then closed unmerged.
 rclone copy \
   "$RESULT_DIR" \
   "gdrive:$JOB_ID" \
