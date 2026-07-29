@@ -55,6 +55,7 @@ jobs:
         env:
           JOB_ID: ${{ steps.request.outputs.job_id }}
           SOURCE_SHA: ${{ steps.request.outputs.source_sha }}
+          ELEVENLABS_API_KEY: ${{ secrets.ELEVENLABS_API_KEY }}
         run: |
           set +e
           mkdir -p "$RUNNER_TEMP/render-result"
