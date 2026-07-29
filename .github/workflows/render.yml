@@ -47,7 +47,7 @@ jobs:
       - name: Install system tools
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y -qq ffmpeg openssl
+          sudo apt-get install -y -qq ffmpeg openssl rclone
 
       - name: Render and build private review package
         id: render
@@ -70,7 +70,7 @@ jobs:
           printf '%s\n' "$code" > "$RUNNER_TEMP/render-result/exit-code.txt"
           echo "exit_code=$code" >> "$GITHUB_OUTPUT"
           if [ "$code" -eq 0 ]; then
-            echo "Private render completed; securing results for transfer."
+            echo "Private render completed; securing and uploading results."
           else
             echo "Private render failed; securing the private diagnostic package."
           fi
@@ -102,6 +102,25 @@ jobs:
           retention-days: 1
           compression-level: 0
           if-no-files-found: error
+
+      - name: Upload privately to pinned Google Drive folder
+        if: always()
+        shell: bash
+        env:
+          RCLONE_CONFIG_B64: ${{ secrets.RCLONE_CONFIG_B64 }}
+          JOB_ID: ${{ steps.request.outputs.job_id }}
+        run: |
+          if bash scripts/upload-drive.sh \
+            "$RUNNER_TEMP/render-result" \
+            "$JOB_ID" \
+            >"$RUNNER_TEMP/private-upload.log" 2>&1; then
+            echo "Private Drive upload completed."
+          else
+            echo "Private Drive upload failed. Sanitized uploader diagnostics follow."
+            tail -n 40 "$RUNNER_TEMP/private-upload.log" \
+              | sed -E 's/(token|client_secret|refresh_token)[=:][^[:space:]]+/\1=[REDACTED]/Ig'
+            exit 1
+          fi
 
       - name: Fail workflow when rendering failed
         if: always() && steps.render.outputs.exit_code != '0'
