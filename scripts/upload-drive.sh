@@ -25,7 +25,8 @@ if ! [[ "$JOB_ID" =~ ^[a-z0-9][a-z0-9-]{5,63}$ ]]; then
 fi
 
 RCLONE_CONFIG_FILE="$(mktemp)"
-trap 'rm -f "$RCLONE_CONFIG_FILE"' EXIT
+TOKENINFO_FILE="$(mktemp)"
+trap 'rm -f "$RCLONE_CONFIG_FILE" "$TOKENINFO_FILE"' EXIT
 
 printf '%s' "$RCLONE_CONFIG_B64" | base64 --decode > "$RCLONE_CONFIG_FILE"
 chmod 600 "$RCLONE_CONFIG_FILE"
@@ -46,15 +47,63 @@ RCLONE_SCOPE="$(awk '
   }
 ' "$RCLONE_CONFIG_FILE")"
 NORMALIZED_SCOPE="$(printf '%s' "$RCLONE_SCOPE" | tr -d '[:space:]\"')"
+SCOPE_CONFIRMED=0
 
 case "$NORMALIZED_SCOPE" in
   drive.file|https://www.googleapis.com/auth/drive.file|drive.file,drive.metadata.readonly|drive.metadata.readonly,drive.file|https://www.googleapis.com/auth/drive.file,https://www.googleapis.com/auth/drive.metadata.readonly|https://www.googleapis.com/auth/drive.metadata.readonly,https://www.googleapis.com/auth/drive.file)
-    ;;
-  *)
-    echo "The gdrive remote must use drive.file with optional read-only metadata access." >&2
-    exit 65
+    SCOPE_CONFIRMED=1
     ;;
 esac
+
+if [ "$SCOPE_CONFIRMED" -ne 1 ]; then
+  rclone lsf "gdrive:Telic-Renders" \
+    --config "$RCLONE_CONFIG_FILE" \
+    --max-depth 1 \
+    --stats 0 \
+    --log-level ERROR \
+    >/dev/null
+
+  TOKEN_JSON="$(awk '
+    /^\[gdrive\]$/ { in_remote=1; next }
+    /^\[/ { if (in_remote) exit }
+    in_remote && /^[[:space:]]*token[[:space:]]*=/ {
+      sub(/^[^=]*=[[:space:]]*/, "", $0)
+      print
+      exit
+    }
+  ' "$RCLONE_CONFIG_FILE")"
+
+  ACCESS_TOKEN="$(printf '%s' "$TOKEN_JSON" | node -e '
+    let input="";
+    process.stdin.on("data", (chunk) => input += chunk);
+    process.stdin.on("end", () => {
+      try {
+        const token = JSON.parse(input);
+        if (typeof token.access_token !== "string" || token.access_token.length < 20) process.exit(1);
+        process.stdout.write(token.access_token);
+      } catch {
+        process.exit(1);
+      }
+    });
+  ')"
+
+  printf 'access_token=%s' "$ACCESS_TOKEN" | curl --fail --silent --show-error \
+    --header 'Content-Type: application/x-www-form-urlencoded' \
+    --data-binary @- \
+    https://oauth2.googleapis.com/tokeninfo \
+    --output "$TOKENINFO_FILE"
+
+  node - "$TOKENINFO_FILE" <<'NODE'
+const fs = require('node:fs');
+const tokenInfo = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
+const scopes = new Set(String(tokenInfo.scope ?? '').split(/\s+/).filter(Boolean));
+const driveFile = 'https://www.googleapis.com/auth/drive.file';
+const fullDrive = 'https://www.googleapis.com/auth/drive';
+if (!scopes.has(driveFile) || scopes.has(fullDrive)) {
+  process.exit(1);
+}
+NODE
+fi
 
 printf 'Upload completed at %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
   > "$RESULT_DIR/upload-complete.txt"
