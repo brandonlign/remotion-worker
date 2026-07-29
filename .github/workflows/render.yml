@@ -97,8 +97,15 @@ jobs:
             exit 1
           fi
 
+      - name: Report sanitized private status
+        if: always()
+        run: |
+          node scripts/classify-private-run.mjs \
+            "$RUNNER_TEMP/private-build.log" \
+            "$RUNNER_TEMP/private-upload.log"
+
       - name: Fail workflow when rendering failed
         if: always() && steps.render.outputs.exit_code != '0'
         run: |
-          echo "The private render failed. Detailed diagnostics were uploaded to Drive."
+          echo "The private render failed. Detailed diagnostics remain private."
           exit 1
