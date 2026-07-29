@@ -55,6 +55,7 @@ jobs:
         env:
           JOB_ID: ${{ steps.request.outputs.job_id }}
           SOURCE_SHA: ${{ steps.request.outputs.source_sha }}
+          RCLONE_CONFIG_B64: ${{ secrets.RCLONE_CONFIG_B64 }}
         run: |
           set +e
           mkdir -p "$RUNNER_TEMP/render-result"
@@ -86,15 +87,19 @@ jobs:
           RCLONE_CONFIG_B64: ${{ secrets.RCLONE_CONFIG_B64 }}
           JOB_ID: ${{ steps.request.outputs.job_id }}
         run: |
-          if bash scripts/upload-drive.sh \
-            "$RUNNER_TEMP/render-result" \
-            "$JOB_ID" \
-            >"$RUNNER_TEMP/private-upload.log" 2>&1; then
-            echo "Private Drive upload completed."
-          else
-            echo "Private Drive upload failed. Check the configured Drive secret."
-            exit 1
-          fi
+          for attempt in 1 2 3; do
+            if bash scripts/upload-drive.sh \
+              "$RUNNER_TEMP/render-result" \
+              "$JOB_ID" \
+              >"$RUNNER_TEMP/private-upload.log" 2>&1; then
+              echo "Private Drive upload completed."
+              exit 0
+            fi
+            echo "Private Drive upload attempt $attempt failed."
+            sleep $((attempt * 5))
+          done
+          echo "Private Drive upload failed after retries."
+          exit 1
 
       - name: Fail workflow when rendering failed
         if: always() && steps.render.outputs.exit_code != '0'
