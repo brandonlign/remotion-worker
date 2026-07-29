@@ -6,6 +6,8 @@ Add `remotion-worker.json` to the root of the private Remotion repository. Start
 
 The source repository must have a lockfile compatible with its install command. The current default expects npm and `package-lock.json`.
 
+Use the optional `prepareCommand` for trusted private build-time work that must happen before checks and rendering, such as generating narration into a local asset path.
+
 ## 2. Create a read-only private-repository token
 
 Create a fine-grained personal access token with:
@@ -48,10 +50,8 @@ Confirm the remote is restricted and working:
 ```bash
 rclone config show gdrive \
   --config "$HOME/.config/rclone/remotion-worker.conf"
-
 rclone mkdir gdrive:Telic-Renders \
   --config "$HOME/.config/rclone/remotion-worker.conf"
-
 rclone lsd gdrive: \
   --config "$HOME/.config/rclone/remotion-worker.conf"
 ```
@@ -74,13 +74,21 @@ Store the clipboard value as the repository secret `RCLONE_CONFIG_B64`.
 
 The configuration contains a renewable Google OAuth token. Treat it like a password. Do not commit it, paste it into issues, or expose it in workflow logs.
 
-The worker repository now needs only these three secrets:
+## 4. Add optional private preparation secrets
+
+Telic render jobs that generate ElevenLabs narration during `prepareCommand` require the public worker repository secret `ELEVENLABS_API_KEY`. Paste the key directly into the encrypted Actions secret. Do not put it in `remotion-worker.json`, the render request, a source file, an issue, a pull request, or a workflow log.
+
+The worker repository therefore uses these core secrets:
 
 - `SOURCE_REPOSITORY`
 - `SOURCE_REPO_TOKEN`
 - `RCLONE_CONFIG_B64`
 
-## 4. Submit a render request
+And this Telic narration secret when voiceover generation is enabled:
+
+- `ELEVENLABS_API_KEY`
+
+## 5. Submit a render request
 
 Create an internal branch named `render/<opaque-job-id>`, update `jobs/request.json`, and open a pull request into `main`.
 
@@ -102,7 +110,7 @@ Requirements:
 
 The public manifest intentionally contains no topic, script, asset name, composition ID, or output filename. Those stay in the private source repository.
 
-## 5. Retrieve results
+## 6. Retrieve results
 
 The worker creates `Telic-Renders/<jobId>` in Google Drive. A successful run contains:
 
@@ -117,6 +125,6 @@ The worker creates `Telic-Renders/<jobId>` in Google Drive. A successful run con
 
 A failed render still uploads its private build log and exit code when the Drive upload configuration works.
 
-## 6. Keep the public repository controlled
+## 7. Keep the public repository controlled
 
 Do not grant untrusted users write access. The workflow rejects forked pull requests, but anyone with write access can create a same-repository `render/*` branch and trigger the configured secrets.
