@@ -49,6 +49,25 @@ jobs:
           sudo apt-get update -qq
           sudo apt-get install -y -qq ffmpeg rclone
 
+      - name: Prepare private render inputs
+        shell: bash
+        env:
+          RCLONE_CONFIG_B64: ${{ secrets.RCLONE_CONFIG_B64 }}
+        run: |
+          set +e
+          mkdir -p "$RUNNER_TEMP/render-result"
+          bash private-source/scripts/fetch-private-inputs.sh \
+            >"$RUNNER_TEMP/private-inputs.log" 2>&1
+          code=$?
+          if [ "$code" -ne 0 ]; then
+            cp "$RUNNER_TEMP/private-inputs.log" \
+              "$RUNNER_TEMP/render-result/private-build.log"
+            printf '%s\n' "$code" > "$RUNNER_TEMP/render-result/exit-code.txt"
+            echo "Private render input preparation failed."
+            exit "$code"
+          fi
+          echo "Private render inputs prepared and verified."
+
       - name: Render and build private review package
         id: render
         shell: bash

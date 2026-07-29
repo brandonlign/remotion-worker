@@ -46,8 +46,10 @@ RCLONE_SCOPE="$(awk '
   }
 ' "$RCLONE_CONFIG_FILE")"
 
-if [ "$RCLONE_SCOPE" != "drive.file" ]; then
-  echo "The gdrive remote must use the least-privilege drive.file scope." >&2
+NORMALIZED_SCOPE=",${RCLONE_SCOPE//[[:space:]]/},"
+if [[ "$NORMALIZED_SCOPE" != *,drive.file,* ]] || \
+   { [[ "$NORMALIZED_SCOPE" != *,drive.readonly,* ]] && [[ "$NORMALIZED_SCOPE" != *,drive,* ]]; }; then
+  echo "The gdrive remote must include drive.file plus drive.readonly (or drive)." >&2
   exit 65
 fi
 
