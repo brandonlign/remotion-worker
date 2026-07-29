@@ -1,0 +1,113 @@
+name: Render private Remotion source
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    paths:
+      - jobs/request.json
+      - .github/workflows/render-private.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: remotion-render-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  render:
+    if: >-
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      startsWith(github.head_ref, 'render/')
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Check out worker
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Validate render request
+        id: request
+        run: node scripts/validate-job.mjs jobs/request.json
+
+      - name: Check out private source
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ secrets.SOURCE_REPOSITORY }}
+          ref: ${{ steps.request.outputs.source_sha }}
+          token: ${{ secrets.SOURCE_REPO_TOKEN }}
+          path: private-source
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: Install system tools
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ffmpeg rclone
+
+      - name: Validate private Drive upload
+        shell: bash
+        env:
+          RCLONE_CONFIG_B64: ${{ secrets.RCLONE_CONFIG_B64 }}
+          JOB_ID: ${{ steps.request.outputs.job_id }}
+        run: |
+          set -Eeuo pipefail
+          mkdir -p "$RUNNER_TEMP/drive-preflight"
+          printf 'Drive preflight for %s\n' "$JOB_ID" > "$RUNNER_TEMP/drive-preflight/preflight.txt"
+          bash scripts/upload-drive.sh "$RUNNER_TEMP/drive-preflight" "$JOB_ID"
+
+      - name: Render and build private review package
+        id: render
+        shell: bash
+        env:
+          JOB_ID: ${{ steps.request.outputs.job_id }}
+          SOURCE_SHA: ${{ steps.request.outputs.source_sha }}
+        run: |
+          set +e
+          mkdir -p "$RUNNER_TEMP/render-result"
+          bash scripts/run-render.sh \
+            jobs/request.json \
+            private-source \
+            "$RUNNER_TEMP/render-result" \
+            >"$RUNNER_TEMP/private-build.log" 2>&1
+          code=$?
+          cp "$RUNNER_TEMP/private-build.log" "$RUNNER_TEMP/render-result/private-build.log"
+          printf '%s\n' "$code" > "$RUNNER_TEMP/render-result/exit-code.txt"
+          echo "exit_code=$code" >> "$GITHUB_OUTPUT"
+          if [ "$code" -eq 0 ]; then
+            echo "Private render completed; uploading results."
+          else
+            echo "Private render failed; uploading the private diagnostic package."
+          fi
+          exit 0
+
+      - name: Remove private source checkout
+        if: always()
+        run: rm -rf private-source
+
+      - name: Upload privately to Google Drive
+        if: always() && steps.render.outcome != 'skipped'
+        shell: bash
+        env:
+          RCLONE_CONFIG_B64: ${{ secrets.RCLONE_CONFIG_B64 }}
+          JOB_ID: ${{ steps.request.outputs.job_id }}
+        run: |
+          if bash scripts/upload-drive.sh \
+            "$RUNNER_TEMP/render-result" \
+            "$JOB_ID"; then
+            echo "Private Drive upload completed."
+          else
+            echo "Private Drive upload failed."
+            exit 1
+          fi
+
+      - name: Fail workflow when rendering failed
+        if: always() && steps.render.outputs.exit_code != '0' && steps.render.outcome != 'skipped'
+        run: |
+          echo "The private render failed. Detailed diagnostics were uploaded to Drive."
+          exit 1
