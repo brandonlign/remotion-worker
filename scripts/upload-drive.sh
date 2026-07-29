@@ -45,11 +45,16 @@ RCLONE_SCOPE="$(awk '
     exit
   }
 ' "$RCLONE_CONFIG_FILE")"
+NORMALIZED_SCOPE="$(printf '%s' "$RCLONE_SCOPE" | tr -d '[:space:]\"')"
 
-if [ "$RCLONE_SCOPE" != "drive.file" ]; then
-  echo "The gdrive remote must use the least-privilege drive.file scope." >&2
-  exit 65
-fi
+case "$NORMALIZED_SCOPE" in
+  drive.file|https://www.googleapis.com/auth/drive.file|drive.file,drive.metadata.readonly|drive.metadata.readonly,drive.file|https://www.googleapis.com/auth/drive.file,https://www.googleapis.com/auth/drive.metadata.readonly|https://www.googleapis.com/auth/drive.metadata.readonly,https://www.googleapis.com/auth/drive.file)
+    ;;
+  *)
+    echo "The gdrive remote must use drive.file with optional read-only metadata access." >&2
+    exit 65
+    ;;
+esac
 
 printf 'Upload completed at %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
   > "$RESULT_DIR/upload-complete.txt"
