@@ -1,4 +1,4 @@
-name: Temporary BlindSlope exact S-band query
+name: Temporary BlindSlope S-band inventory
 
 on:
   pull_request:
@@ -13,14 +13,14 @@ jobs:
   probe:
     if: startsWith(github.head_ref, 'render/blindslope')
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
-      - name: Query exact Gangtok NISAR S-band product
-        run: python3 scripts/query-bhoonidhi-gangtok.py
+      - name: Query all Gangtok NISAR S-band products
+        run: python3 scripts/query-bhoonidhi-gangtok-all.py
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: bhoonidhi-gangtok-query
-          path: bhoonidhi_gangtok_query
+          name: bhoonidhi-gangtok-all-products
+          path: bhoonidhi_gangtok_all
           if-no-files-found: error
