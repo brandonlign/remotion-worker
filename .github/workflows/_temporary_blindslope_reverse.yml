@@ -1,4 +1,4 @@
-name: Temporary BlindSlope S-band validation
+name: Temporary BlindSlope download protocol probe
 
 on:
   pull_request:
@@ -13,14 +13,12 @@ jobs:
   probe:
     if: startsWith(github.head_ref, 'render/blindslope')
     runs-on: ubuntu-latest
-    timeout-minutes: 12
+    timeout-minutes: 5
     steps:
       - uses: actions/checkout@v4
-      - name: Validate Bhoonidhi search with Indian positive controls
-        run: python3 scripts/validate-bhoonidhi-query.py
+      - name: Inspect Bhoonidhi direct-download protocol
+        run: python3 scripts/inspect-bhoonidhi-download.py
       - uses: actions/upload-artifact@v4
-        if: always()
         with:
-          name: bhoonidhi-query-validation
-          path: bhoonidhi_validation
-          if-no-files-found: error
+          name: bhoonidhi-download-protocol
+          path: bhoonidhi_download_contexts.json
