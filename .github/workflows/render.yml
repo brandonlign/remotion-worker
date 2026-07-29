@@ -80,8 +80,23 @@ jobs:
         if: always()
         run: rm -rf private-source
 
+      - name: Print BlindSlope measured summary
+        if: always() && startsWith(github.head_ref, 'render/blindslope')
+        run: |
+          echo '--- BLINDSLOPE SUMMARY BEGIN ---'
+          cat "$RUNNER_TEMP/render-result/summary.json"
+          echo '--- BLINDSLOPE SUMMARY END ---'
+
+      - name: Upload BlindSlope evidence artifact
+        if: always() && startsWith(github.head_ref, 'render/blindslope')
+        uses: actions/upload-artifact@v4
+        with:
+          name: blindslope-pilot-results
+          path: ${{ runner.temp }}/render-result
+          if-no-files-found: error
+
       - name: Upload privately to Google Drive
-        if: always()
+        if: always() && !startsWith(github.head_ref, 'render/blindslope')
         shell: bash
         env:
           RCLONE_CONFIG_B64: ${{ secrets.RCLONE_CONFIG_B64 }}
