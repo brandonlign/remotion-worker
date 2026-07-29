@@ -88,14 +88,18 @@ jobs:
           JOB_ID: ${{ steps.request.outputs.job_id }}
         run: |
           for attempt in 1 2 3; do
-            if bash scripts/upload-drive.sh \
+            set +e
+            bash scripts/upload-drive.sh \
               "$RUNNER_TEMP/render-result" \
               "$JOB_ID" \
-              >"$RUNNER_TEMP/private-upload.log" 2>&1; then
+              >"$RUNNER_TEMP/private-upload.log" 2>&1
+            upload_code=$?
+            set -e
+            if [ "$upload_code" -eq 0 ]; then
               echo "Private Drive upload completed."
               exit 0
             fi
-            echo "Private Drive upload attempt $attempt failed."
+            echo "Private Drive upload attempt $attempt exit code: $upload_code"
             sleep $((attempt * 5))
           done
           echo "Private Drive upload failed after retries."
