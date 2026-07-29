@@ -67,6 +67,7 @@ jobs:
           cp "$RUNNER_TEMP/private-build.log" "$RUNNER_TEMP/render-result/private-build.log"
           printf '%s\n' "$code" > "$RUNNER_TEMP/render-result/exit-code.txt"
           echo "exit_code=$code" >> "$GITHUB_OUTPUT"
+          echo "Private render exit code: $code"
           if [ "$code" -eq 0 ]; then
             echo "Private render completed; uploading results."
           else
