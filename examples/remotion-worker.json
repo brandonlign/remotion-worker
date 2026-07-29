@@ -3,6 +3,7 @@
   "compositionId": "TheOldLLMAd",
   "outputName": "telic-review",
   "installCommand": "npm ci --no-audit --no-fund",
+  "prepareCommand": "true",
   "checkCommand": "npm run lint",
   "crf": 23
 }

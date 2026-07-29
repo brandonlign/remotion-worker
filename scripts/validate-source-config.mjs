@@ -15,6 +15,7 @@ const allowedKeys = new Set([
   "compositionId",
   "outputName",
   "installCommand",
+  "prepareCommand",
   "checkCommand",
   "crf",
 ]);
@@ -63,6 +64,7 @@ const normalized = {
   compositionId: config.compositionId,
   outputName: config.outputName,
   installCommand: safeCommand(config.installCommand, "installCommand", "npm ci --no-audit --no-fund"),
+  prepareCommand: safeCommand(config.prepareCommand, "prepareCommand", "true"),
   checkCommand: safeCommand(config.checkCommand, "checkCommand", "npm run lint"),
   crf,
 };

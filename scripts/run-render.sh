@@ -50,6 +50,7 @@ ENTRY_POINT="$(json_field entryPoint)"
 COMPOSITION_ID="$(json_field compositionId)"
 OUTPUT_NAME="$(json_field outputName)"
 INSTALL_COMMAND="$(json_field installCommand)"
+PREPARE_COMMAND="$(json_field prepareCommand)"
 CHECK_COMMAND="$(json_field checkCommand)"
 CRF="$(json_field crf)"
 FINAL_VIDEO="$OUTPUT_DIR/${OUTPUT_NAME}.mp4"
@@ -58,6 +59,7 @@ REMOTION_BIN="$SOURCE_DIR/node_modules/.bin/remotion"
 cd "$SOURCE_DIR"
 
 bash -o pipefail -c "$INSTALL_COMMAND"
+bash -o pipefail -c "$PREPARE_COMMAND"
 bash -o pipefail -c "$CHECK_COMMAND"
 
 if [ ! -x "$REMOTION_BIN" ]; then
