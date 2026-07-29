@@ -8,6 +8,8 @@ fi
 
 RESULT_DIR="$1"
 JOB_ID="$2"
+TEMP_FOLDER_ID="1N9Fnpu3XEnpsl2DbWFnnW_cS7CMfASqU"
+EXPECTED_JOB_ID="telic-260729-1856-7f3c9a"
 
 if [ ! -d "$RESULT_DIR" ]; then
   echo "Result directory does not exist." >&2
@@ -19,8 +21,8 @@ if [ -z "${RCLONE_CONFIG_B64:-}" ]; then
   exit 65
 fi
 
-if ! [[ "$JOB_ID" =~ ^[a-z0-9][a-z0-9-]{5,63}$ ]]; then
-  echo "Invalid job ID." >&2
+if [ "$JOB_ID" != "$EXPECTED_JOB_ID" ]; then
+  echo "This temporary uploader is pinned to a different job ID." >&2
   exit 65
 fi
 
@@ -47,14 +49,30 @@ RCLONE_SCOPE="$(awk '
 ' "$RCLONE_CONFIG_FILE")"
 
 case "$RCLONE_SCOPE" in
-  drive.file|https://www.googleapis.com/auth/drive.file) ;;
+  drive.file|https://www.googleapis.com/auth/drive.file|drive|https://www.googleapis.com/auth/drive|"") ;;
   *)
-    echo "The gdrive remote must use the least-privilege drive.file scope." >&2
+    echo "The configured Drive scope is unsupported." >&2
     exit 65
     ;;
 esac
 
-DUPLICATE_JOB_FOLDERS="$(
+python3 - "$RCLONE_CONFIG_FILE" "$TEMP_FOLDER_ID" <<'PY'
+import configparser
+import os
+import sys
+
+path, folder_id = sys.argv[1:]
+parser = configparser.RawConfigParser()
+parser.read(path)
+if "gdrive" not in parser:
+    raise SystemExit("The rclone configuration has no gdrive section.")
+parser.set("gdrive", "root_folder_id", folder_id)
+with open(path, "w", encoding="utf-8") as handle:
+    parser.write(handle, space_around_delimiters=True)
+os.chmod(path, 0o600)
+PY
+
+JOB_FOLDER_COUNT="$(
   rclone lsjson gdrive: \
     --config "$RCLONE_CONFIG_FILE" \
     --dirs-only \
@@ -70,18 +88,14 @@ print(sum(1 for item in items if item.get("Name") == job_id and item.get("IsDir"
 ' "$JOB_ID"
 )"
 
-if [ "$DUPLICATE_JOB_FOLDERS" -gt 0 ]; then
-  echo "A root-level temporary folder already exists for this job ID; refusing to overwrite it." >&2
+if [ "$JOB_FOLDER_COUNT" -gt 1 ]; then
+  echo "Multiple temporary folders already exist for this job ID; refusing an ambiguous upload." >&2
   exit 65
 fi
 
 printf 'Upload completed at %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
   > "$RESULT_DIR/upload-complete.txt"
 
-# The consolidated Telic folders were recreated outside this least-privilege
-# OAuth app and are therefore invisible to drive.file. Upload the opaque job
-# folder at Drive root; the trusted Drive connector moves it into the existing
-# TEMP RENDERS & REVIEWS folder immediately after verification.
 rclone copy \
   "$RESULT_DIR" \
   "gdrive:$JOB_ID" \
