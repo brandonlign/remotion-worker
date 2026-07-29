@@ -1,4 +1,4 @@
-name: Temporary BlindSlope S-band inventory
+name: Temporary BlindSlope S-band validation
 
 on:
   pull_request:
@@ -13,14 +13,14 @@ jobs:
   probe:
     if: startsWith(github.head_ref, 'render/blindslope')
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 12
     steps:
       - uses: actions/checkout@v4
-      - name: Query all Gangtok NISAR S-band products
-        run: python3 scripts/query-bhoonidhi-gangtok-all.py
+      - name: Validate Bhoonidhi search with Indian positive controls
+        run: python3 scripts/validate-bhoonidhi-query.py
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: bhoonidhi-gangtok-all-products
-          path: bhoonidhi_gangtok_all
+          name: bhoonidhi-query-validation
+          path: bhoonidhi_validation
           if-no-files-found: error
