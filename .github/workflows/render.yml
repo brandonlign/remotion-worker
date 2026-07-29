@@ -86,6 +86,17 @@ jobs:
           echo '--- BLINDSLOPE SUMMARY BEGIN ---'
           cat "$RUNNER_TEMP/render-result/summary.json"
           echo '--- BLINDSLOPE SUMMARY END ---'
+          echo '--- BLINDSLOPE GRANULE INVENTORY BEGIN ---'
+          python3 - "$RUNNER_TEMP/render-result/l_band_granules.csv" <<'PY'
+          import csv, json, sys
+          rows=list(csv.DictReader(open(sys.argv[1], newline='')))
+          keep={'NISAR_L2_GUNW_PROVISIONAL_V1','NISAR_L1_RIFG_PROVISIONAL_V1','NISAR_L2_GSLC_PROVISIONAL_V1'}
+          for r in rows:
+              if r['collection'] not in keep:
+                  continue
+              print(json.dumps({k:r.get(k) for k in ['collection','granule_id','start_time','end_time','bbox','direction','cycle_candidate','track_candidate','frame_candidate','timestamps_in_name']}, separators=(',',':')))
+          PY
+          echo '--- BLINDSLOPE GRANULE INVENTORY END ---'
 
       - name: Upload BlindSlope evidence artifact
         if: always() && startsWith(github.head_ref, 'render/blindslope')
