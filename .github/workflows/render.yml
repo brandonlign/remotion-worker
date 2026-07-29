@@ -1,4 +1,4 @@
-name: Render private Remotion source
+name: One-time Telic Drive cleanup
 
 on:
   pull_request:
@@ -10,95 +10,27 @@ permissions:
   contents: read
 
 concurrency:
-  group: remotion-render-${{ github.event.pull_request.number }}
-  cancel-in-progress: true
+  group: telic-drive-cleanup
+  cancel-in-progress: false
 
 jobs:
-  render:
+  cleanup:
     if: >-
       github.event.pull_request.head.repo.full_name == github.repository &&
-      startsWith(github.head_ref, 'render/')
+      startsWith(github.head_ref, 'render/drive-cleanup-')
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 10
 
     steps:
       - name: Check out worker
         uses: actions/checkout@v4
 
-      - name: Set up Node
-        uses: actions/setup-node@v4
-        with:
-          node-version: 22
-
-      - name: Validate render request
-        id: request
-        run: node scripts/validate-job.mjs jobs/request.json
-
-      - name: Check out private source
-        uses: actions/checkout@v4
-        with:
-          repository: ${{ secrets.SOURCE_REPOSITORY }}
-          ref: ${{ steps.request.outputs.source_sha }}
-          token: ${{ secrets.SOURCE_REPO_TOKEN }}
-          path: private-source
-          persist-credentials: false
-          fetch-depth: 1
-
-      - name: Install system tools
+      - name: Install rclone
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y -qq ffmpeg rclone
+          sudo apt-get install -y -qq rclone
 
-      - name: Render and build private review package
-        id: render
-        shell: bash
-        env:
-          JOB_ID: ${{ steps.request.outputs.job_id }}
-          SOURCE_SHA: ${{ steps.request.outputs.source_sha }}
-          ELEVENLABS_API_KEYS_JSON: ${{ secrets.ELEVENLABS_API_KEYS_JSON }}
-          ELEVENLABS_API_KEY: ${{ secrets.ELEVENLABS_API_KEY }}
-        run: |
-          set +e
-          mkdir -p "$RUNNER_TEMP/render-result"
-          bash scripts/run-render.sh \
-            jobs/request.json \
-            private-source \
-            "$RUNNER_TEMP/render-result" \
-            >"$RUNNER_TEMP/private-build.log" 2>&1
-          code=$?
-          cp "$RUNNER_TEMP/private-build.log" "$RUNNER_TEMP/render-result/private-build.log"
-          printf '%s\n' "$code" > "$RUNNER_TEMP/render-result/exit-code.txt"
-          echo "exit_code=$code" >> "$GITHUB_OUTPUT"
-          if [ "$code" -eq 0 ]; then
-            echo "Private render completed; uploading results."
-          else
-            echo "Private render failed; uploading the private diagnostic package."
-          fi
-          exit 0
-
-      - name: Remove private source checkout
-        if: always()
-        run: rm -rf private-source
-
-      - name: Upload privately to Google Drive
-        if: always()
-        shell: bash
+      - name: Consolidate private Drive folders
         env:
           RCLONE_CONFIG_B64: ${{ secrets.RCLONE_CONFIG_B64 }}
-          JOB_ID: ${{ steps.request.outputs.job_id }}
-        run: |
-          if bash scripts/upload-drive.sh \
-            "$RUNNER_TEMP/render-result" \
-            "$JOB_ID" \
-            >"$RUNNER_TEMP/private-upload.log" 2>&1; then
-            echo "Private Drive upload completed."
-          else
-            echo "Private Drive upload failed. Check the configured Drive secret."
-            exit 1
-          fi
-
-      - name: Fail workflow when rendering failed
-        if: always() && steps.render.outputs.exit_code != '0'
-        run: |
-          echo "The private render failed. Detailed diagnostics were uploaded to Drive."
-          exit 1
+        run: python3 scripts/drive-cleanup-once.py
