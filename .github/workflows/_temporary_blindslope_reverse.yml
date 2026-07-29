@@ -1,4 +1,4 @@
-name: Temporary BlindSlope download function probe
+name: Temporary BlindSlope matched download probe
 
 on:
   pull_request:
@@ -13,8 +13,14 @@ jobs:
   probe:
     if: startsWith(github.head_ref, 'render/blindslope')
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 8
     steps:
       - uses: actions/checkout@v4
-      - name: Print exact Bhoonidhi download functions
-        run: python3 scripts/print-bhoonidhi-download-functions.py
+      - name: Probe exact matched L/S product downloads
+        run: python3 scripts/probe-blindslope-matched-downloads.py
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: blindslope-matched-download-probe
+          path: blindslope_download_probe
+          if-no-files-found: error
