@@ -93,7 +93,9 @@ jobs:
             >"$RUNNER_TEMP/private-upload.log" 2>&1; then
             echo "Private Drive upload completed."
           else
-            echo "Private Drive upload failed. Check the configured Drive secret."
+            echo "Private Drive upload failed. Sanitized uploader diagnostics follow."
+            tail -n 40 "$RUNNER_TEMP/private-upload.log" \
+              | sed -E 's/(token|client_secret|refresh_token)[=:][^[:space:]]+/\1=[REDACTED]/Ig'
             exit 1
           fi
 
