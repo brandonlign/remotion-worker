@@ -37,25 +37,9 @@ if ! rclone listremotes --config "$RCLONE_CONFIG_FILE" | grep -qx 'gdrive:'; the
   exit 65
 fi
 
-RCLONE_SCOPE="$(awk '
-  /^\[gdrive\]$/ { in_remote=1; next }
-  /^\[/ { if (in_remote) exit }
-  in_remote && /^[[:space:]]*scope[[:space:]]*=/ {
-    sub(/^[^=]*=[[:space:]]*/, "", $0)
-    sub(/[[:space:]]*$/, "", $0)
-    print
-    exit
-  }
-' "$RCLONE_CONFIG_FILE")"
-
-case "$RCLONE_SCOPE" in
-  drive.file|https://www.googleapis.com/auth/drive.file|drive|https://www.googleapis.com/auth/drive|"") ;;
-  *)
-    echo "The configured Drive scope is unsupported." >&2
-    exit 65
-    ;;
-esac
-
+# This one-run uploader does not trust a human-readable scope label. Its
+# effective write scope is instead constrained by both a fixed job ID and a
+# fixed Drive root folder ID below.
 python3 - "$RCLONE_CONFIG_FILE" "$TEMP_FOLDER_ID" <<'PY'
 import configparser
 import os
