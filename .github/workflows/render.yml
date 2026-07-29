@@ -33,6 +33,4 @@ jobs:
       - name: Consolidate private Drive folders
         env:
           RCLONE_CONFIG_B64: ${{ secrets.RCLONE_CONFIG_B64 }}
-        run: |
-          sed -i 's/section.get("scope", "").strip() != "drive.file"/"drive.file" not in section.get("scope", "").strip()/' scripts/drive-cleanup-once.py
-          python3 scripts/drive-cleanup-once.py
+        run: python3 scripts/run-drive-cleanup.py
