@@ -77,32 +77,31 @@ jobs:
           fi
           exit 0
 
-      - name: Encrypt private package
+      - name: Encrypt private package for trusted retrieval
         if: always()
         shell: bash
         env:
           JOB_ID: ${{ steps.request.outputs.job_id }}
         run: |
-          tar -C "$RUNNER_TEMP/render-result" -czf "$RUNNER_TEMP/render-package.tar.gz" .
-          openssl enc -aes-256-cbc -pbkdf2 -iter 200000 -salt \
-            -pass file:private-source/.render-transfer-key \
-            -in "$RUNNER_TEMP/render-package.tar.gz" \
-            -out "$RUNNER_TEMP/$JOB_ID.enc"
-          rm -f "$RUNNER_TEMP/render-package.tar.gz"
+          set -euo pipefail
+          KEY_FILE="$RUNNER_TEMP/$JOB_ID.key"
+          PACKAGE_FILE="$RUNNER_TEMP/render-package.tar.gz"
+          trap 'rm -f "$KEY_FILE" "$PACKAGE_FILE"' EXIT
 
-      - name: Wrap transfer key for trusted retrieval
-        if: always()
-        shell: bash
-        env:
-          JOB_ID: ${{ steps.request.outputs.job_id }}
-        run: |
+          openssl rand -base64 48 > "$KEY_FILE"
+          chmod 600 "$KEY_FILE"
+          tar -C "$RUNNER_TEMP/render-result" -czf "$PACKAGE_FILE" .
+          openssl enc -aes-256-cbc -pbkdf2 -iter 200000 -salt \
+            -pass file:"$KEY_FILE" \
+            -in "$PACKAGE_FILE" \
+            -out "$RUNNER_TEMP/$JOB_ID.enc"
           openssl pkeyutl -encrypt \
             -pubin \
             -inkey scripts/handoff-public.pem \
             -pkeyopt rsa_padding_mode:oaep \
             -pkeyopt rsa_oaep_md:sha256 \
             -pkeyopt rsa_mgf1_md:sha256 \
-            -in private-source/.render-transfer-key \
+            -in "$KEY_FILE" \
             -out "$RUNNER_TEMP/$JOB_ID.key.enc"
 
       - name: Remove private source checkout
