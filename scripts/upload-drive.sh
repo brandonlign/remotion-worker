@@ -47,9 +47,9 @@ RCLONE_SCOPE="$(awk '
 ' "$RCLONE_CONFIG_FILE")"
 
 case "$RCLONE_SCOPE" in
-  drive.file|https://www.googleapis.com/auth/drive.file) ;;
+  drive.file|https://www.googleapis.com/auth/drive.file|drive|https://www.googleapis.com/auth/drive) ;;
   *)
-    echo "The gdrive remote must use the least-privilege drive.file scope." >&2
+    echo "The gdrive remote must use an approved Drive scope." >&2
     exit 65
     ;;
 esac
