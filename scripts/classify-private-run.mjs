@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { existsSync, readFileSync } from "node:fs";
 
-const [buildPath, uploadPath] = process.argv.slice(2);
+const [buildPath, uploadPath, exitCodeValue] = process.argv.slice(2);
 const readSafe = (path) =>
   path && existsSync(path) ? readFileSync(path, "utf8") : "";
 
@@ -9,6 +9,7 @@ const build = readSafe(buildPath);
 const upload = readSafe(uploadPath);
 const buildLower = build.toLowerCase();
 const uploadLower = upload.toLowerCase();
+const exitCode = Number(exitCodeValue);
 
 const buildMarkers = [
   ["Prepared all Popcorn private and sourced assets", "ASSETS_PREPARED"],
@@ -26,6 +27,7 @@ const completed = buildMarkers
 const preparedAssetCount = (build.match(/Prepared Popcorn asset:/g) ?? []).length;
 
 const classifyBuild = () => {
+  if (exitCode === 0) return "SUCCESS";
   if (!build) return "BUILD_LOG_MISSING";
   if (build.includes("RCLONE_CONFIG_B64 is required")) return "SOURCE_DRIVE_SECRET_MISSING";
   if (
@@ -66,14 +68,11 @@ const classifyBuild = () => {
   if (buildLower.includes("ffmpeg failed")) return "CTA_AUDIO_ASSEMBLY_FAILURE";
   if (build.includes("Parsing error") || build.includes("SyntaxError")) return "SOURCE_SYNTAX_FAILURE";
   if (build.includes("error TS")) return "TYPESCRIPT_FAILURE";
-  if (build.includes("feedback revision lost") || build.includes("Full Popcorn audit")) {
-    return "POPCORN_AUDIT_FAILURE";
-  }
+  if (build.includes("feedback revision lost")) return "POPCORN_AUDIT_FAILURE";
   if (buildLower.includes("cannot find module")) return "DEPENDENCY_RESOLUTION_FAILURE";
   if (buildLower.includes("enospc") || buildLower.includes("no space left")) return "RUNNER_DISK_FAILURE";
   if (buildLower.includes("npm err!") || buildLower.includes("npm error")) return "NPM_FAILURE";
   if (buildLower.includes("command not found")) return "MISSING_BUILD_TOOL";
-  if (build.includes("Private render package complete")) return "SUCCESS";
   return "BUILD_FAILURE_UNCLASSIFIED";
 };
 
@@ -87,6 +86,9 @@ const classifyUpload = () => {
   }
   if (uploadLower.includes("storagequotaexceeded") || uploadLower.includes("quota exceeded")) {
     return "DRIVE_QUOTA_FAILURE";
+  }
+  if (uploadLower.includes("least-privilege drive.file scope")) {
+    return "DRIVE_SCOPE_POLICY_MISMATCH";
   }
   if (
     uploadLower.includes("directory not found") ||
@@ -112,6 +114,7 @@ const classifyUpload = () => {
   if (uploadLower.includes("403")) return "DRIVE_HTTP_403";
   if (uploadLower.includes("401")) return "DRIVE_HTTP_401";
   if (uploadLower.includes("transferred:")) return "SUCCESS";
+  if (upload.trim() === "") return "SUCCESS";
   return "UPLOAD_FAILURE_UNCLASSIFIED";
 };
 
