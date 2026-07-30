@@ -76,6 +76,35 @@ jobs:
           fi
           exit 0
 
+      - name: Classify private failure safely
+        if: always() && steps.render.outputs.exit_code != '0'
+        shell: bash
+        run: |
+          python3 - "$RUNNER_TEMP/private-build.log" <<'PY'
+          from pathlib import Path
+          import re, sys
+          text = Path(sys.argv[1]).read_text(errors="replace").lower()
+          checks = [
+              ("VOICE_NOT_FOUND", ["voice_not_found", "voice does not exist", "voice not found"]),
+              ("VOICE_ACCESS_DENIED", ["voice_access_denied", "permission_rejected", "forbidden", "http 403"]),
+              ("ELEVENLABS_AUTH", ["invalid_api_key", "credential_rejected", "http 401"]),
+              ("ELEVENLABS_QUOTA", ["quota_exhausted", "quota_exceeded", "insufficient_credits", "http 402"]),
+              ("ELEVENLABS_RATE_LIMIT", ["rate_limit", "http 429", "too many concurrent"]),
+              ("VOICE_CONFIG_INVALID", ["voiceover config", "voiceid must", "voicename must"]),
+              ("NARRATION_GENERATION", ["elevenlabs returned http", "could not generate", "text-to-speech"]),
+              ("DEPENDENCY_OR_CHECK", ["npm err", "npm error", "error ts", "parsing error", "cannot find module"]),
+              ("RENDER_FAILURE", ["render failed", "browser process crashed", "ffmpeg"]),
+          ]
+          result = "UNCLASSIFIED_PRIVATE_BUILD_FAILURE"
+          for label, needles in checks:
+              if any(needle in text for needle in needles):
+                  result = label
+                  break
+          statuses = sorted(set(re.findall(r"http\s+(401|402|403|404|422|429|5\d\d)", text)))
+          suffix = f" HTTP_{'_'.join(statuses)}" if statuses else ""
+          print(f"PRIVATE_BUILD_CLASS={result}{suffix}")
+          PY
+
       - name: Remove private source checkout
         if: always()
         run: rm -rf private-source
