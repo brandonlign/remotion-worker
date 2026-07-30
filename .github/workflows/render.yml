@@ -103,7 +103,8 @@ jobs:
         run: |
           node scripts/classify-private-run.mjs \
             "$RUNNER_TEMP/private-build.log" \
-            "$RUNNER_TEMP/private-upload.log"
+            "$RUNNER_TEMP/private-upload.log" \
+            "${{ steps.render.outputs.exit_code }}"
 
       - name: Fail workflow when rendering failed
         if: always() && steps.render.outputs.exit_code != '0'
