@@ -21,6 +21,10 @@ if ! [[ "$JOB_ID" =~ ^[a-z0-9][a-z0-9-]{5,63}$ ]]; then
   echo "Invalid job ID." >&2
   exit 65
 fi
+if [ -n "${DRIVE_TARGET_FOLDER_ID:-}" ] && ! [[ "$DRIVE_TARGET_FOLDER_ID" =~ ^[A-Za-z0-9_-]{10,}$ ]]; then
+  echo "Invalid Drive target folder ID." >&2
+  exit 65
+fi
 
 RCLONE_CONFIG_FILE="$(mktemp)"
 trap 'rm -f "$RCLONE_CONFIG_FILE"' EXIT
@@ -32,13 +36,6 @@ if ! rclone listremotes --config "$RCLONE_CONFIG_FILE" | grep -qx 'gdrive:'; the
   exit 65
 fi
 
-# This temporary render branch accepts the user's already-authorized legacy
-# Drive scope. It never prints the configuration and uses it only to upload one
-# private review package. The final folder is moved into Telic Production after
-# connector verification, and this public branch is closed without merging.
-#
-# The previous Drive cleanup also removed the folder stored in the old rclone
-# root_folder_id, so clear only that stale pointer in this ephemeral copy.
 python3 - "$RCLONE_CONFIG_FILE" <<'PY'
 import configparser
 import os
@@ -58,11 +55,23 @@ PY
 printf 'Upload completed at %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
   > "$RESULT_DIR/upload-complete.txt"
 
-rclone copy \
-  "$RESULT_DIR" \
-  "gdrive:$JOB_ID" \
-  --config "$RCLONE_CONFIG_FILE" \
-  --transfers 4 \
-  --checkers 8 \
-  --stats 0 \
-  --log-level ERROR
+if [ -n "${DRIVE_TARGET_FOLDER_ID:-}" ]; then
+  rclone copy \
+    "$RESULT_DIR" \
+    "gdrive:" \
+    --drive-root-folder-id "$DRIVE_TARGET_FOLDER_ID" \
+    --config "$RCLONE_CONFIG_FILE" \
+    --transfers 4 \
+    --checkers 8 \
+    --stats 0 \
+    --log-level ERROR
+else
+  rclone copy \
+    "$RESULT_DIR" \
+    "gdrive:$JOB_ID" \
+    --config "$RCLONE_CONFIG_FILE" \
+    --transfers 4 \
+    --checkers 8 \
+    --stats 0 \
+    --log-level ERROR
+fi
