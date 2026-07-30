@@ -46,13 +46,22 @@ RCLONE_SCOPE="$(awk '
   }
 ' "$RCLONE_CONFIG_FILE")"
 
-case "$RCLONE_SCOPE" in
-  drive.file|https://www.googleapis.com/auth/drive.file|drive|https://www.googleapis.com/auth/drive) ;;
-  *)
-    echo "The gdrive remote has an unsupported OAuth scope: ${RCLONE_SCOPE:-<missing>}." >&2
-    exit 65
-    ;;
-esac
+SCOPE_ALLOWED=false
+IFS=',' read -r -a RCLONE_SCOPES <<< "$RCLONE_SCOPE"
+for scope in "${RCLONE_SCOPES[@]}"; do
+  scope="${scope//[[:space:]]/}"
+  case "$scope" in
+    drive.file|https://www.googleapis.com/auth/drive.file|drive|https://www.googleapis.com/auth/drive)
+      SCOPE_ALLOWED=true
+      break
+      ;;
+  esac
+done
+
+if [ "$SCOPE_ALLOWED" != true ]; then
+  echo "The gdrive remote has an unsupported OAuth scope: ${RCLONE_SCOPE:-<missing>}." >&2
+  exit 65
+fi
 
 resolve_unique_folder_id() {
   local expected_name="$1"
