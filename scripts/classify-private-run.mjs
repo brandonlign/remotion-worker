@@ -52,7 +52,15 @@ const classifyBuild = () => {
   if (buildLower.includes("size mismatch") || buildLower.includes("checksum mismatch")) {
     return "BASE_AUDIO_INTEGRITY_FAILURE";
   }
-  if (build.includes("ELEVENLABS_API_KEYS_JSON")) return "CTA_KEY_CONFIGURATION";
+  if (build.includes("ELEVENLABS_API_KEYS_JSON is not valid JSON")) {
+    return "CTA_KEYS_JSON_INVALID";
+  }
+  if (build.includes("ELEVENLABS_API_KEYS_JSON must be a JSON array")) {
+    return "CTA_KEYS_JSON_NOT_ARRAY";
+  }
+  if (build.includes("An authorized ElevenLabs key is required")) {
+    return "CTA_KEY_MISSING";
+  }
   if (build.includes("Could not generate the approved Popcorn CTA")) return "CTA_PROVIDER_FAILURE";
   if (build.includes("Combined narration duration")) return "CTA_DURATION_FAILURE";
   if (buildLower.includes("ffmpeg failed")) return "CTA_AUDIO_ASSEMBLY_FAILURE";
