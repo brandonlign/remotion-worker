@@ -73,6 +73,11 @@ jobs:
             echo "Private render completed; uploading results."
           else
             echo "Private render failed; uploading the private diagnostic package."
+            echo "Sanitized private build failure summary:"
+            grep -Ei '(^|[[:space:]])(error|failed|could not|expected|not found|HTTP [45][0-9]{2}|TS[0-9]{4}|SyntaxError|TypeError|ReferenceError|RangeError)' "$RUNNER_TEMP/private-build.log" \
+              | tail -n 30 \
+              | sed -E 's/sk_[A-Za-z0-9_-]+/***REDACTED***/g; s/[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/***REDACTED_EMAIL***/g' \
+              || true
           fi
           exit 0
 
@@ -93,7 +98,10 @@ jobs:
             >"$RUNNER_TEMP/private-upload.log" 2>&1; then
             echo "Private Drive upload completed."
           else
-            echo "Private Drive upload failed. Check the configured Drive secret."
+            echo "Private Drive upload failed. Sanitized infrastructure error:"
+            tail -n 20 "$RUNNER_TEMP/private-upload.log" \
+              | sed -E 's/[A-Za-z0-9_-]{25,}/***REDACTED_TOKEN***/g' \
+              || true
             exit 1
           fi
 
