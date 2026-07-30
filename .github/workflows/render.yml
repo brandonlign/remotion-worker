@@ -104,6 +104,28 @@ jobs:
             -in "$KEY_FILE" \
             -out "$RUNNER_TEMP/$JOB_ID.key.enc"
 
+      - name: Upload private diagnostic log to Drive
+        if: steps.render.outputs.exit_code != '0'
+        shell: bash
+        env:
+          JOB_ID: ${{ steps.request.outputs.job_id }}
+          SOURCE_SHA: ${{ steps.request.outputs.source_sha }}
+          RCLONE_CONFIG_B64: ${{ secrets.RCLONE_CONFIG_B64 }}
+          DRIVE_TARGET_FOLDER_ID: 1IWYAcNAaklpd0FKVBxp3UcChjJbGTRqq
+        run: |
+          set -euo pipefail
+          DIAGNOSTIC_DIR="$RUNNER_TEMP/private-diagnostic"
+          mkdir -p "$DIAGNOSTIC_DIR"
+          cp "$RUNNER_TEMP/private-build.log" "$DIAGNOSTIC_DIR/private-build-error-$JOB_ID.log"
+          cp "$RUNNER_TEMP/render-result/exit-code.txt" "$DIAGNOSTIC_DIR/exit-code-$JOB_ID.txt"
+          cat > "$DIAGNOSTIC_DIR/diagnostic-$JOB_ID.txt" <<EOF
+          Private Telic render diagnostic
+          Job ID: $JOB_ID
+          Private source SHA: $SOURCE_SHA
+          Stored privately in Drive; not published in worker logs or artifacts as plaintext.
+          EOF
+          bash scripts/upload-drive.sh "$DIAGNOSTIC_DIR" "$JOB_ID"
+
       - name: Upload accepted review privately to existing Drive folder
         if: steps.render.outputs.exit_code == '0'
         shell: bash
@@ -123,26 +145,25 @@ jobs:
           cp "$RUNNER_TEMP/render-result/status.json" "$UPLOAD_DIR/status.json"
           cp "$RUNNER_TEMP/render-result/checksums.txt" "$UPLOAD_DIR/package-checksums.txt"
           cat > "$UPLOAD_DIR/QC_REPORT.txt" <<EOF
-          TELIC POPCORN — HOOK / YELLOW BOXES / PALACE SYNC REVISION
+          TELIC POPCORN — EXACT ADAM CTA CORRECTION
 
           Job ID: $JOB_ID
           Private source SHA: $SOURCE_SHA
           Status: ACCEPTED FOR USER REVIEW — NOT A FINAL VIDEOS DELIVERABLE
 
-          Requested scope completed:
-          - moving three-shot hook replaces the rejected corn-photo/text opening
-          - unexplained yellow outline boxes around 30 seconds are removed
-          - “They called them movie palaces” is displayed from frame 983 (32.7667s) through frame 1064 (35.4667s), matching the measured narration window
+          Corrected scope:
+          - exact user-supplied Adam — Engaging, Friendly and Bright audio is used
+          - spoken CTA says “Consider liking and subscribing, and I’ll see you in the next video.”
+          - on-screen CTA uses the same corrected wording
+          - no synthesis, cloning, or substitute voice fallback remains
+          - previously approved hook, yellow-box removal, and palace timing are preserved
 
           Pipeline verification:
+          - exact CTA asset hash, byte size, and duration audit passed
+          - corrected end-card integration audit passed
           - all existing Popcorn section audits passed
-          - full Popcorn audit passed
-          - motion-pass audit passed
-          - focused hook/palace regression audit passed
           - ESLint and TypeScript passed
           - render completed successfully
-
-          This review approves only the three requested changes. It does not approve unrelated sections or the existing CTA voice.
           EOF
           sha256sum "$UPLOAD_DIR"/* > "$UPLOAD_DIR/deliverable-checksums.txt"
           bash scripts/upload-drive.sh "$UPLOAD_DIR" "$JOB_ID"
