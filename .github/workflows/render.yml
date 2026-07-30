@@ -47,7 +47,7 @@ jobs:
       - name: Install system tools
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y -qq ffmpeg openssl
+          sudo apt-get install -y -qq ffmpeg rclone openssl
 
       - name: Render and build private review package
         id: render
