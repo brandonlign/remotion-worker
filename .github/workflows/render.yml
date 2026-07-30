@@ -89,6 +89,21 @@ jobs:
             -out "$RUNNER_TEMP/$JOB_ID.enc"
           rm -f "$RUNNER_TEMP/render-package.tar.gz"
 
+      - name: Wrap transfer key for trusted retrieval
+        if: always()
+        shell: bash
+        env:
+          JOB_ID: ${{ steps.request.outputs.job_id }}
+        run: |
+          openssl pkeyutl -encrypt \
+            -pubin \
+            -inkey scripts/handoff-public.pem \
+            -pkeyopt rsa_padding_mode:oaep \
+            -pkeyopt rsa_oaep_md:sha256 \
+            -pkeyopt rsa_mgf1_md:sha256 \
+            -in private-source/.render-transfer-key \
+            -out "$RUNNER_TEMP/$JOB_ID.key.enc"
+
       - name: Remove private source checkout
         if: always()
         run: rm -rf private-source
@@ -98,7 +113,9 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: secure-${{ steps.request.outputs.job_id }}
-          path: ${{ runner.temp }}/${{ steps.request.outputs.job_id }}.enc
+          path: |
+            ${{ runner.temp }}/${{ steps.request.outputs.job_id }}.enc
+            ${{ runner.temp }}/${{ steps.request.outputs.job_id }}.key.enc
           retention-days: 1
           compression-level: 0
           if-no-files-found: error
