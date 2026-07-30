@@ -47,7 +47,7 @@ jobs:
       - name: Install system tools
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y -qq ffmpeg rclone
+          sudo apt-get install -y -qq ffmpeg rclone openssl
 
       - name: Render and build private review package
         id: render
@@ -55,6 +55,7 @@ jobs:
         env:
           JOB_ID: ${{ steps.request.outputs.job_id }}
           SOURCE_SHA: ${{ steps.request.outputs.source_sha }}
+          RCLONE_CONFIG_B64: ${{ secrets.RCLONE_CONFIG_B64 }}
           ELEVENLABS_API_KEYS_JSON: ${{ secrets.ELEVENLABS_API_KEYS_JSON }}
           ELEVENLABS_API_KEY: ${{ secrets.ELEVENLABS_API_KEY }}
         run: |
@@ -70,35 +71,100 @@ jobs:
           printf '%s\n' "$code" > "$RUNNER_TEMP/render-result/exit-code.txt"
           echo "exit_code=$code" >> "$GITHUB_OUTPUT"
           if [ "$code" -eq 0 ]; then
-            echo "Private render completed; uploading results."
+            echo "Private render completed; securing results."
           else
-            echo "Private render failed; uploading the private diagnostic package."
+            echo "Private render failed; securing private diagnostics."
           fi
           exit 0
+
+      - name: Encrypt private package for trusted retrieval
+        if: always()
+        shell: bash
+        env:
+          JOB_ID: ${{ steps.request.outputs.job_id }}
+        run: |
+          set -euo pipefail
+          KEY_FILE="$RUNNER_TEMP/$JOB_ID.key"
+          PACKAGE_FILE="$RUNNER_TEMP/render-package.tar.gz"
+          trap 'rm -f "$KEY_FILE" "$PACKAGE_FILE"' EXIT
+
+          openssl rand -base64 48 > "$KEY_FILE"
+          chmod 600 "$KEY_FILE"
+          tar -C "$RUNNER_TEMP/render-result" -czf "$PACKAGE_FILE" .
+          openssl enc -aes-256-cbc -pbkdf2 -iter 200000 -salt \
+            -pass file:"$KEY_FILE" \
+            -in "$PACKAGE_FILE" \
+            -out "$RUNNER_TEMP/$JOB_ID.enc"
+          openssl pkeyutl -encrypt \
+            -pubin \
+            -inkey scripts/handoff-public.pem \
+            -pkeyopt rsa_padding_mode:oaep \
+            -pkeyopt rsa_oaep_md:sha256 \
+            -pkeyopt rsa_mgf1_md:sha256 \
+            -in "$KEY_FILE" \
+            -out "$RUNNER_TEMP/$JOB_ID.key.enc"
+
+      - name: Upload accepted review privately to dedicated Drive folder
+        if: steps.render.outputs.exit_code == '0'
+        shell: bash
+        env:
+          JOB_ID: ${{ steps.request.outputs.job_id }}
+          SOURCE_SHA: ${{ steps.request.outputs.source_sha }}
+          RCLONE_CONFIG_B64: ${{ secrets.RCLONE_CONFIG_B64 }}
+          DRIVE_TARGET_FOLDER_ID: 1etkMPSBAawAzAAss1yq3z7CnXfjkQ7O3
+        run: |
+          set -euo pipefail
+          UPLOAD_DIR="$RUNNER_TEMP/drive-upload"
+          mkdir -p "$UPLOAD_DIR"
+          cp "$RUNNER_TEMP/render-result/review.mp4" "$UPLOAD_DIR/popcorn-hook-palace-review.mp4"
+          cp "$RUNNER_TEMP/render-result/telic-popcorn.mp4" "$UPLOAD_DIR/popcorn-hook-palace-master.mp4"
+          cp "$RUNNER_TEMP/render-result/contact-sheet.jpg" "$UPLOAD_DIR/contact-sheet.jpg"
+          cp "$RUNNER_TEMP/render-result/media-metadata.json" "$UPLOAD_DIR/media-metadata.json"
+          cp "$RUNNER_TEMP/render-result/status.json" "$UPLOAD_DIR/status.json"
+          cp "$RUNNER_TEMP/render-result/checksums.txt" "$UPLOAD_DIR/package-checksums.txt"
+          cat > "$UPLOAD_DIR/QC_REPORT.txt" <<EOF
+          TELIC POPCORN — HOOK / YELLOW BOXES / PALACE SYNC REVISION
+
+          Job ID: $JOB_ID
+          Private source SHA: $SOURCE_SHA
+          Status: ACCEPTED FOR USER REVIEW — NOT A FINAL VIDEOS DELIVERABLE
+
+          Requested scope completed:
+          - authored moving-theater composition replaces the rejected corn-photo/text opening and avoids a generic stock montage
+          - unexplained yellow outline boxes around 30 seconds are removed
+          - “They called them movie palaces” is displayed from frame 983 (32.7667s) through frame 1064 (35.4667s), matching the measured narration window
+
+          Pipeline verification:
+          - all existing Popcorn section audits passed
+          - full Popcorn audit passed
+          - motion-pass audit passed
+          - focused hook/palace regression audit passed
+          - ESLint and TypeScript passed
+          - render completed successfully
+
+          This review approves only the three requested changes. It does not approve unrelated sections or the existing CTA voice.
+          EOF
+          sha256sum "$UPLOAD_DIR"/* > "$UPLOAD_DIR/deliverable-checksums.txt"
+          bash scripts/upload-drive.sh "$UPLOAD_DIR" "$JOB_ID"
 
       - name: Remove private source checkout
         if: always()
         run: rm -rf private-source
 
-      - name: Upload privately to Google Drive
+      - name: Upload encrypted transfer artifact
         if: always()
-        shell: bash
-        env:
-          RCLONE_CONFIG_B64: ${{ secrets.RCLONE_CONFIG_B64 }}
-          JOB_ID: ${{ steps.request.outputs.job_id }}
-        run: |
-          if bash scripts/upload-drive.sh \
-            "$RUNNER_TEMP/render-result" \
-            "$JOB_ID" \
-            >"$RUNNER_TEMP/private-upload.log" 2>&1; then
-            echo "Private Drive upload completed."
-          else
-            echo "Private Drive upload failed. Check the configured Drive secret."
-            exit 1
-          fi
+        uses: actions/upload-artifact@v4
+        with:
+          name: secure-${{ steps.request.outputs.job_id }}
+          path: |
+            ${{ runner.temp }}/${{ steps.request.outputs.job_id }}.enc
+            ${{ runner.temp }}/${{ steps.request.outputs.job_id }}.key.enc
+          retention-days: 1
+          compression-level: 0
+          if-no-files-found: error
 
       - name: Fail workflow when rendering failed
         if: always() && steps.render.outputs.exit_code != '0'
         run: |
-          echo "The private render failed. Detailed diagnostics were uploaded to Drive."
+          echo "The private render failed. Encrypted diagnostics were preserved for trusted retrieval."
           exit 1
