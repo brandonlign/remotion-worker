@@ -72,16 +72,9 @@ jobs:
           if [ "$code" -eq 0 ]; then
             echo "Private render completed; uploading results."
           else
-            phase="unknown"
-            if [ -f "$RUNNER_TEMP/render-result/render-phase.txt" ]; then
-              candidate="$(head -1 "$RUNNER_TEMP/render-result/render-phase.txt")"
-              case "$candidate" in
-                source-validation|install|prepare|check|render|review-assets|metadata|complete)
-                  phase="$candidate"
-                  ;;
-              esac
-            fi
-            echo "Private render failed during phase: ${phase}."
+            node scripts/summarize-private-check.mjs \
+              "$RUNNER_TEMP/private-build.log" \
+              "$RUNNER_TEMP/render-result/render-phase.txt"
           fi
           exit 0
 
