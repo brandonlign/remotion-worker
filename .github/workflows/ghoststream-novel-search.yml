@@ -11,33 +11,31 @@ permissions:
   contents: read
 
 jobs:
-  independent-synthesis:
+  mdc-templates:
     runs-on: ubuntu-latest
-    timeout-minutes: 150
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
 
       - uses: actions/setup-python@v5
         with:
           python-version: "3.9"
-          cache: pip
-          cache-dependency-path: ghoststream_novel/requirements.txt
 
-      - name: Install dependencies
-        run: python -m pip install -r ghoststream_novel/requirements.txt
+      - name: Install requests
+        run: python -m pip install requests==2.32.5
 
-      - name: Run pooled CAMS and SonotaCo synthesis
+      - name: Fetch current MDC templates
         shell: bash
         run: |
           set -o pipefail
-          python ghoststream_novel/synthesize_independent_archives.py | tee ghoststream_independent_synthesis.log
+          python ghoststream_novel/fetch_mdc_templates.py | tee ghoststream_mdc_templates.log
 
-      - name: Upload results
+      - name: Upload templates
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: ghoststream-independent-synthesis
+          name: ghoststream-mdc-templates
           path: |
-            ghoststream_independent_synthesis/
-            ghoststream_independent_synthesis.log
+            ghoststream_mdc_templates/
+            ghoststream_mdc_templates.log
           if-no-files-found: warn
