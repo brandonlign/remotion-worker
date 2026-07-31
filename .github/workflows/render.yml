@@ -82,26 +82,26 @@ jobs:
         if: always()
         run: rm -rf private-source
 
-      - name: Encrypt private render handoff
-        if: steps.render.outputs.exit_code == '0'
+      - name: Encrypt private diagnostic handoff
+        if: always()
         shell: bash
         run: |
-          tar -C "$RUNNER_TEMP/render-result" -czf "$RUNNER_TEMP/qr-render-package.tar.gz" .
+          tar -C "$RUNNER_TEMP/render-result" -czf "$RUNNER_TEMP/qr-keydiag-package.tar.gz" .
           openssl cms -encrypt \
             -binary \
             -aes256 \
-            -in "$RUNNER_TEMP/qr-render-package.tar.gz" \
+            -in "$RUNNER_TEMP/qr-keydiag-package.tar.gz" \
             -outform DER \
-            -out "$RUNNER_TEMP/qr-render-package.cms" \
+            -out "$RUNNER_TEMP/qr-keydiag-package.cms" \
             handoff/qr-review-cert.pem
-          rm -f "$RUNNER_TEMP/qr-render-package.tar.gz"
+          rm -f "$RUNNER_TEMP/qr-keydiag-package.tar.gz"
 
-      - name: Store ciphertext-only private handoff
-        if: steps.render.outputs.exit_code == '0'
+      - name: Store ciphertext-only private diagnostic handoff
+        if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: qr-encrypted-render-handoff
-          path: ${{ runner.temp }}/qr-render-package.cms
+          name: qr-encrypted-keydiag-handoff
+          path: ${{ runner.temp }}/qr-keydiag-package.cms
           retention-days: 1
           compression-level: 0
           if-no-files-found: error
