@@ -15,25 +15,17 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
-      - name: Checkout runner repository
-        uses: actions/checkout@v4
-
-      - name: Checkout ISEF branch
-        uses: actions/checkout@v4
-        with:
-          repository: brandonlign/isef
-          ref: agent/ghoststream-pilot
-          path: isef
+      - uses: actions/checkout@v4
 
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
 
-      - name: Compile exact ISEF tools
+      - name: Compile exact tools
         run: |
           python -m py_compile \
-            isef/pilots/ghoststream/april_stream/flux/make_ghoststream_flux_catalog.py \
-            isef/pilots/ghoststream/april_stream/flux/preflight_level2_flux_data.py
+            ghoststream_novel/flux_handoff/make_ghoststream_flux_catalog.py \
+            ghoststream_novel/flux_handoff/preflight_level2_flux_data.py
 
       - name: Test custom catalogue generation
         shell: bash
@@ -44,9 +36,9 @@ jobs:
 
           for s in 1.7 1.8 1.9 2.0 2.1; do
             out="generated/s_${s}"
-            python isef/pilots/ghoststream/april_stream/flux/make_ghoststream_flux_catalog.py \
+            python ghoststream_novel/flux_handoff/make_ghoststream_flux_catalog.py \
               --rms-root test_rms --mass-index "$s" --output-dir "$out"
-            python -c 'import json, pathlib, sys; out=pathlib.Path(sys.argv[1]); s=float(sys.argv[2]); lines=[x for x in (out/"flux_showers_ghoststream.csv").read_text().splitlines() if x and not x.startswith("#")]; fields=lines[-1].split("|"); assert len(fields)==21, len(fields); assert fields[1].strip()=="GSA"; meta=json.loads((out/"ghoststream_flux_catalog_metadata.json").read_text()); expected=10**((s-1)/2.5); assert abs(meta["population_index"]-expected)<1e-12; assert abs(float(fields[17])-expected)<1e-7' "$out" "$s"
+            python -c 'import json, pathlib, sys; out=pathlib.Path(sys.argv[1]); s=float(sys.argv[2]); lines=[x for x in (out/"flux_showers_ghoststream.csv").read_text().splitlines() if x and not x.startswith("#")]; fields=lines[-1].split("|"); assert len(fields)==21, len(fields); assert fields[1].strip()=="GSA"; assert abs(float(fields[3])-35.902)<1e-9; assert abs(float(fields[5])-39.902)<1e-9; meta=json.loads((out/"ghoststream_flux_catalog_metadata.json").read_text()); expected=10**((s-1)/2.5); assert abs(meta["population_index"]-expected)<1e-12; assert abs(float(fields[17])-expected)<1e-7' "$out" "$s"
           done
 
       - name: Test Level 2 preflight classifications
@@ -63,9 +55,19 @@ jobs:
           touch "$incomplete/FTPdetectinfo_AU0001.txt"
 
           set +e
-          python isef/pilots/ghoststream/april_stream/flux/preflight_level2_flux_data.py fixtures --output-dir preflight_output
+          python ghoststream_novel/flux_handoff/preflight_level2_flux_data.py fixtures --output-dir preflight_output
           code=$?
           set -e
           test "$code" -eq 2
 
           python -c 'import json, pathlib; p=json.loads(pathlib.Path("preflight_output/level2_flux_preflight.json").read_text()); assert p["night_directories_found"]==3; assert p["status_counts"]=={"READY_RAW_RECOMPUTE":1,"READY_PRECOMPUTED_METADATA":1,"INCOMPLETE":1}, p["status_counts"]; a={pathlib.Path(x["directory"]).name:x for x in p["audits"]}; assert a["US0001_20260427_000000"]["status"]=="READY_RAW_RECOMPUTE"; assert a["HR0001_20260428_000000"]["status"]=="READY_PRECOMPUTED_METADATA"; assert a["AU0001_20260429_000000"]["status"]=="INCOMPLETE"'
+
+      - name: Upload handoff test outputs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ghoststream-flux-handoff-test
+          path: |
+            generated/
+            preflight_output/
+          if-no-files-found: warn
