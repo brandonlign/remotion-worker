@@ -44,10 +44,22 @@ jobs:
           persist-credentials: false
           fetch-depth: 1
 
-      - name: Install system tools
+      - name: Prepare system tools
+        shell: bash
         run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y -qq ffmpeg rclone
+          set -Eeuo pipefail
+          command -v ffmpeg >/dev/null
+          mkdir -p "$RUNNER_TEMP/rclone" "$RUNNER_TEMP/bin"
+          curl --fail --silent --show-error --location \
+            https://downloads.rclone.org/rclone-current-linux-amd64.zip \
+            --output "$RUNNER_TEMP/rclone/rclone.zip"
+          unzip -q "$RUNNER_TEMP/rclone/rclone.zip" -d "$RUNNER_TEMP/rclone"
+          rclone_binary="$(find "$RUNNER_TEMP/rclone" -type f -name rclone -print -quit)"
+          test -n "$rclone_binary"
+          install -m 0755 "$rclone_binary" "$RUNNER_TEMP/bin/rclone"
+          echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
+          "$RUNNER_TEMP/bin/rclone" version | head -n 1
+          ffmpeg -version | head -n 1
 
       - name: Render and build private review package
         id: render
