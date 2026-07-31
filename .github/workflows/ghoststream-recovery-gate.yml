@@ -26,18 +26,18 @@ jobs:
       - name: Install dependencies
         run: python -m pip install -r ghoststream_runner/requirements.txt
 
-      - name: Run official IAU and uncertainty checks
+      - name: Run untouched multi-year confirmation
         shell: bash
         run: |
           set -o pipefail
-          python ghoststream_runner/final_candidate_checks_fixed.py | tee ghoststream_final_checks.log
+          python ghoststream_runner/multiyear_confirmation.py | tee ghoststream_multiyear_confirmation.log
 
       - name: Upload results
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: ghoststream-final-checks-fixed
+          name: ghoststream-multiyear-confirmation
           path: |
-            ghoststream_final_checks/
-            ghoststream_final_checks.log
+            ghoststream_multiyear_confirmation/
+            ghoststream_multiyear_confirmation.log
           if-no-files-found: warn
