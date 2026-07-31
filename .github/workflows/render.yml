@@ -74,7 +74,12 @@ jobs:
           else
             phase="unknown"
             if [ -f "$RUNNER_TEMP/render-result/render-phase.txt" ]; then
-              phase="$(tr -cd 'a-zA-Z0-9_-\n' < "$RUNNER_TEMP/render-result/render-phase.txt" | head -1)"
+              candidate="$(head -1 "$RUNNER_TEMP/render-result/render-phase.txt")"
+              case "$candidate" in
+                source-validation|install|prepare|check|render|review-assets|metadata|complete)
+                  phase="$candidate"
+                  ;;
+              esac
             fi
             echo "Private render failed during phase: ${phase}."
           fi
