@@ -19,6 +19,13 @@ fi
 mkdir -p "$OUTPUT_DIR"
 SOURCE_DIR="$(cd "$SOURCE_DIR" && pwd)"
 OUTPUT_DIR="$(cd "$OUTPUT_DIR" && pwd)"
+PHASE_FILE="$OUTPUT_DIR/render-phase.txt"
+
+mark_phase() {
+  printf '%s\n' "$1" > "$PHASE_FILE"
+}
+
+mark_phase "source-validation"
 
 if [ ! -f "$SOURCE_DIR/remotion-worker.json" ]; then
   echo "The private source is missing remotion-worker.json." >&2
@@ -58,8 +65,11 @@ REMOTION_BIN="$SOURCE_DIR/node_modules/.bin/remotion"
 
 cd "$SOURCE_DIR"
 
+mark_phase "install"
 bash -o pipefail -c "$INSTALL_COMMAND"
+mark_phase "prepare"
 bash -o pipefail -c "$PREPARE_COMMAND"
+mark_phase "check"
 bash -o pipefail -c "$CHECK_COMMAND"
 
 if [ ! -x "$REMOTION_BIN" ]; then
@@ -67,6 +77,7 @@ if [ ! -x "$REMOTION_BIN" ]; then
   exit 69
 fi
 
+mark_phase "render"
 "$REMOTION_BIN" render \
   "$ENTRY_POINT" \
   "$COMPOSITION_ID" \
@@ -75,8 +86,10 @@ fi
   --crf="$CRF" \
   --log=error
 
+mark_phase "review-assets"
 bash "$WORKER_ROOT/scripts/create-review-assets.sh" "$FINAL_VIDEO" "$OUTPUT_DIR"
 
+mark_phase "metadata"
 node - "$OUTPUT_DIR/status.json" "$JOB_ID" "$SOURCE_SHA" "$OUTPUT_NAME" <<'NODE'
 const fs = require("node:fs");
 const [outputFile, jobId, sourceSha, outputName] = process.argv.slice(2);
@@ -93,3 +106,5 @@ find "$OUTPUT_DIR" -type f ! -name checksums.txt -print0 \
   | sort -z \
   | xargs -0 sha256sum \
   > "$OUTPUT_DIR/checksums.txt"
+
+mark_phase "complete"
