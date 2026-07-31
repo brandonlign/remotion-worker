@@ -11,13 +11,9 @@ permissions:
   contents: read
 
 jobs:
-  current-year-search:
-    strategy:
-      fail-fast: false
-      matrix:
-        month: [1, 2, 3, 4, 5, 6, 7]
+  april-candidate-audit:
     runs-on: ubuntu-latest
-    timeout-minutes: 90
+    timeout-minutes: 120
     steps:
       - uses: actions/checkout@v4
 
@@ -30,21 +26,18 @@ jobs:
       - name: Install dependencies
         run: python -m pip install -r ghoststream_novel/requirements.txt
 
-      - name: Run current-year monthly search
+      - name: Run frozen April candidate audit
         shell: bash
-        env:
-          GHOSTSTREAM_YEAR: "2026"
-          GHOSTSTREAM_MONTH: ${{ matrix.month }}
         run: |
           set -o pipefail
-          python ghoststream_novel/run_month_year_v3.py | tee ghoststream_2026_${GHOSTSTREAM_MONTH}.log
+          python ghoststream_novel/validate_april_candidate.py | tee ghoststream_april_candidate.log
 
       - name: Upload results
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: ghoststream-2026-v3-${{ matrix.month }}
+          name: ghoststream-april-candidate-audit
           path: |
-            ghoststream_novel_results/
-            ghoststream_2026_${{ matrix.month }}.log
+            ghoststream_april_validation/
+            ghoststream_april_candidate.log
           if-no-files-found: warn
