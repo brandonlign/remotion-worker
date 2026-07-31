@@ -30,13 +30,13 @@ jobs:
         shell: bash
         run: |
           set -o pipefail
-          python ghoststream_runner/final_candidate_checks.py | tee ghoststream_final_checks.log
+          python ghoststream_runner/final_candidate_checks_fixed.py | tee ghoststream_final_checks.log
 
       - name: Upload results
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: ghoststream-final-checks
+          name: ghoststream-final-checks-fixed
           path: |
             ghoststream_final_checks/
             ghoststream_final_checks.log
