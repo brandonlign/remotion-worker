@@ -12,8 +12,12 @@ permissions:
 
 jobs:
   novel-search:
+    strategy:
+      fail-fast: false
+      matrix:
+        month: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]
     runs-on: ubuntu-latest
-    timeout-minutes: 180
+    timeout-minutes: 90
     steps:
       - uses: actions/checkout@v4
 
@@ -26,18 +30,20 @@ jobs:
       - name: Install dependencies
         run: python -m pip install -r ghoststream_novel/requirements.txt
 
-      - name: Run all-season novel search
+      - name: Run monthly novel search
         shell: bash
+        env:
+          GHOSTSTREAM_MONTH: ${{ matrix.month }}
         run: |
           set -o pipefail
-          python ghoststream_novel/run_novel_search_fixed.py | tee ghoststream_novel_search.log
+          python ghoststream_novel/run_month.py | tee ghoststream_novel_search_${GHOSTSTREAM_MONTH}.log
 
       - name: Upload results
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: ghoststream-novel-search
+          name: ghoststream-novel-search-${{ matrix.month }}
           path: |
             ghoststream_novel_results/
-            ghoststream_novel_search.log
+            ghoststream_novel_search_${{ matrix.month }}.log
           if-no-files-found: warn
