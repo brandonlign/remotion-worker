@@ -11,7 +11,7 @@ permissions:
   contents: read
 
 jobs:
-  april-activity-profile-v2:
+  geographic-split-validation:
     runs-on: ubuntu-latest
     timeout-minutes: 180
     steps:
@@ -26,18 +26,18 @@ jobs:
       - name: Install dependencies
         run: python -m pip install -r ghoststream_novel/requirements.txt
 
-      - name: Estimate corrected March-May profile
+      - name: Validate disjoint geographic station groups
         shell: bash
         run: |
           set -o pipefail
-          python ghoststream_novel/estimate_april_activity_profile_v2.py | tee ghoststream_april_activity_v2.log
+          python ghoststream_novel/validate_geographic_network_splits.py | tee ghoststream_geographic_splits.log
 
       - name: Upload results
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: ghoststream-april-activity-profile-v2
+          name: ghoststream-geographic-splits
           path: |
-            ghoststream_april_activity_v2/
-            ghoststream_april_activity_v2.log
+            ghoststream_geographic_splits/
+            ghoststream_geographic_splits.log
           if-no-files-found: warn
