@@ -26,18 +26,18 @@ jobs:
       - name: Install dependencies
         run: python -m pip install -r ghoststream_runner/requirements.txt
 
-      - name: Run weak-stream injection gate
+      - name: Run preliminary blind residual scan
         shell: bash
         run: |
           set -o pipefail
-          python ghoststream_runner/run_injection_gate.py | tee ghoststream_injection_run.log
+          python ghoststream_runner/run_blind_scan.py | tee ghoststream_blind_scan.log
 
       - name: Upload results
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: ghoststream-injection-gate
+          name: ghoststream-blind-scan
           path: |
-            ghoststream_injection_results/
-            ghoststream_injection_run.log
+            ghoststream_blind_scan_results/
+            ghoststream_blind_scan.log
           if-no-files-found: warn
