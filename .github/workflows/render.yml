@@ -93,7 +93,27 @@ jobs:
             >"$RUNNER_TEMP/private-upload.log" 2>&1; then
             echo "Private Drive upload completed."
           else
-            echo "Private Drive upload failed. Check the configured Drive secret."
+            reason="unclassified"
+            if grep -q "Drive upload secret is not configured" "$RUNNER_TEMP/private-upload.log"; then
+              reason="missing-secret"
+            elif grep -q "base64" "$RUNNER_TEMP/private-upload.log"; then
+              reason="config-decode"
+            elif grep -q "remote named gdrive" "$RUNNER_TEMP/private-upload.log"; then
+              reason="remote-missing"
+            elif grep -q "least-privilege drive.file scope" "$RUNNER_TEMP/private-upload.log"; then
+              reason="scope-invalid"
+            elif grep -q "Telic Production" "$RUNNER_TEMP/private-upload.log"; then
+              reason="production-folder-resolution"
+            elif grep -q "TEMP RENDERS & REVIEWS" "$RUNNER_TEMP/private-upload.log"; then
+              reason="temp-folder-resolution"
+            elif grep -Eqi "invalid_grant|token.*expired|oauth|unauthorized|authentication" "$RUNNER_TEMP/private-upload.log"; then
+              reason="oauth-credential"
+            elif grep -Eqi "rate.?limit|too many requests|429" "$RUNNER_TEMP/private-upload.log"; then
+              reason="rate-limit"
+            elif grep -Eqi "permission|forbidden|403" "$RUNNER_TEMP/private-upload.log"; then
+              reason="permission"
+            fi
+            echo "Private Drive upload failed: ${reason}."
             exit 1
           fi
 
