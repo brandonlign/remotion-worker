@@ -72,7 +72,11 @@ jobs:
           if [ "$code" -eq 0 ]; then
             echo "Private render completed; uploading results."
           else
-            echo "Private render failed; uploading the private diagnostic package."
+            phase="unknown"
+            if [ -f "$RUNNER_TEMP/render-result/render-phase.txt" ]; then
+              phase="$(tr -cd 'a-zA-Z0-9_-\n' < "$RUNNER_TEMP/render-result/render-phase.txt" | head -1)"
+            fi
+            echo "Private render failed during phase: ${phase}."
           fi
           exit 0
 
@@ -120,5 +124,5 @@ jobs:
       - name: Fail workflow when rendering failed
         if: always() && steps.render.outputs.exit_code != '0'
         run: |
-          echo "The private render failed. Detailed diagnostics were uploaded to Drive."
+          echo "The private render failed. Detailed diagnostics remain private."
           exit 1
