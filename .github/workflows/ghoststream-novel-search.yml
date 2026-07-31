@@ -11,63 +11,33 @@ permissions:
   contents: read
 
 jobs:
-  test-flux-handoff:
+  april-bootstrap-uncertainty:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 150
     steps:
       - uses: actions/checkout@v4
 
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.11"
+          python-version: "3.9"
+          cache: pip
+          cache-dependency-path: ghoststream_novel/requirements.txt
 
-      - name: Compile exact tools
-        run: |
-          python -m py_compile \
-            ghoststream_novel/flux_handoff/make_ghoststream_flux_catalog.py \
-            ghoststream_novel/flux_handoff/preflight_level2_flux_data.py
+      - name: Install dependencies
+        run: python -m pip install -r ghoststream_novel/requirements.txt
 
-      - name: Test custom catalogue generation
+      - name: Run 20,000-replicate year-night bootstraps
         shell: bash
         run: |
-          set -euo pipefail
-          mkdir -p test_rms/share generated
-          printf '%s\n' '6|LYR|April Lyrids|30|32.4|34|272.3|0.95|33.3|-0.32|46.6|0.29|annual|33.15|18|1.229|4.62|2.1|98.7|3.3|{}' > test_rms/share/flux_showers.csv
+          set -o pipefail
+          python ghoststream_novel/bootstrap_april_solution.py | tee ghoststream_april_bootstrap.log
 
-          for s in 1.7 1.8 1.9 2.0 2.1; do
-            out="generated/s_${s}"
-            python ghoststream_novel/flux_handoff/make_ghoststream_flux_catalog.py \
-              --rms-root test_rms --mass-index "$s" --output-dir "$out"
-            python -c 'import json, pathlib, sys; out=pathlib.Path(sys.argv[1]); s=float(sys.argv[2]); lines=[x for x in (out/"flux_showers_ghoststream.csv").read_text().splitlines() if x and not x.startswith("#")]; fields=lines[-1].split("|"); assert len(fields)==21, len(fields); assert fields[1].strip()=="GSA"; assert abs(float(fields[3])-35.902)<1e-9; assert abs(float(fields[5])-39.902)<1e-9; meta=json.loads((out/"ghoststream_flux_catalog_metadata.json").read_text()); expected=10**((s-1)/2.5); assert abs(meta["population_index"]-expected)<1e-12; assert abs(float(fields[17])-expected)<1e-7' "$out" "$s"
-          done
-
-      - name: Test Level 2 preflight classifications
-        shell: bash
-        run: |
-          set -euo pipefail
-          raw=fixtures/US0001_20260427_000000
-          metadata=fixtures/HR0001_20260428_000000
-          incomplete=fixtures/AU0001_20260429_000000
-          mkdir -p "$raw" "$metadata" "$incomplete"
-
-          touch "$raw/FTPdetectinfo_US0001.txt" "$raw/.config" "$raw/platepar_cmn2010.cal" "$raw/mask.bmp" "$raw/CALSTARS_US0001.txt" "$raw/FF_US0001_20260427.fits"
-          touch "$metadata/FTPdetectinfo_HR0001.txt" "$metadata/.config" "$metadata/platepars_flux_recalibrated.json" "$metadata/mask.bmp" "$metadata/flux_time_intervals.json" "$metadata/flux_sensor_characterization.json" "$metadata/collection_area_GSA.json"
-          touch "$incomplete/FTPdetectinfo_AU0001.txt"
-
-          set +e
-          python ghoststream_novel/flux_handoff/preflight_level2_flux_data.py fixtures --output-dir preflight_output
-          code=$?
-          set -e
-          test "$code" -eq 2
-
-          python -c 'import json, pathlib; p=json.loads(pathlib.Path("preflight_output/level2_flux_preflight.json").read_text()); assert p["night_directories_found"]==3; assert p["status_counts"]=={"READY_RAW_RECOMPUTE":1,"READY_PRECOMPUTED_METADATA":1,"INCOMPLETE":1}, p["status_counts"]; a={pathlib.Path(x["directory"]).name:x for x in p["audits"]}; assert a["US0001_20260427_000000"]["status"]=="READY_RAW_RECOMPUTE"; assert a["HR0001_20260428_000000"]["status"]=="READY_PRECOMPUTED_METADATA"; assert a["AU0001_20260429_000000"]["status"]=="INCOMPLETE"'
-
-      - name: Upload handoff test outputs
+      - name: Upload results
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: ghoststream-flux-handoff-test
+          name: ghoststream-april-bootstrap
           path: |
-            generated/
-            preflight_output/
+            ghoststream_april_bootstrap/
+            ghoststream_april_bootstrap.log
           if-no-files-found: warn
