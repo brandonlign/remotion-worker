@@ -11,9 +11,9 @@ permissions:
   contents: read
 
 jobs:
-  april-bootstrap-uncertainty:
+  april-specification-curve:
     runs-on: ubuntu-latest
-    timeout-minutes: 150
+    timeout-minutes: 180
     steps:
       - uses: actions/checkout@v4
 
@@ -26,18 +26,18 @@ jobs:
       - name: Install dependencies
         run: python -m pip install -r ghoststream_novel/requirements.txt
 
-      - name: Run 20,000-replicate year-night bootstraps
+      - name: Run frozen 81-cell threshold grid
         shell: bash
         run: |
           set -o pipefail
-          python ghoststream_novel/bootstrap_april_solution.py | tee ghoststream_april_bootstrap.log
+          python ghoststream_novel/specification_curve_april.py | tee ghoststream_april_specification_curve.log
 
       - name: Upload results
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: ghoststream-april-bootstrap
+          name: ghoststream-april-specification-curve
           path: |
-            ghoststream_april_bootstrap/
-            ghoststream_april_bootstrap.log
+            ghoststream_april_specification_curve/
+            ghoststream_april_specification_curve.log
           if-no-files-found: warn
