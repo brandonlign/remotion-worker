@@ -11,9 +11,9 @@ permissions:
   contents: read
 
 jobs:
-  inspect-archive-versions:
+  independent-catalog-validation-v2:
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 120
     steps:
       - uses: actions/checkout@v4
 
@@ -26,16 +26,18 @@ jobs:
       - name: Install dependencies
         run: python -m pip install -r ghoststream_novel/requirements.txt
 
-      - name: Inspect permanent archives
+      - name: Validate permanent SonotaCo and EDMOND archives
         shell: bash
         run: |
           set -o pipefail
-          python ghoststream_novel/inspect_archive_versions.py | tee ghoststream_archive_versions.log
+          python ghoststream_novel/validate_independent_catalogs_v2.py | tee ghoststream_independent_validation_v2.log
 
-      - name: Upload log
+      - name: Upload results
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: ghoststream-archive-versions
-          path: ghoststream_archive_versions.log
-          if-no-files-found: error
+          name: ghoststream-independent-validation-v2
+          path: |
+            ghoststream_independent_validation/
+            ghoststream_independent_validation_v2.log
+          if-no-files-found: warn
