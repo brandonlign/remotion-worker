@@ -11,9 +11,9 @@ permissions:
   contents: read
 
 jobs:
-  april-source-null:
+  inspect-independent-archives:
     runs-on: ubuntu-latest
-    timeout-minutes: 120
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
 
@@ -26,18 +26,16 @@ jobs:
       - name: Install dependencies
         run: python -m pip install -r ghoststream_novel/requirements.txt
 
-      - name: Run source-preserving antihelion null
+      - name: Inspect independent catalog archives
         shell: bash
         run: |
           set -o pipefail
-          python ghoststream_novel/validate_april_source_null.py | tee ghoststream_april_source_null.log
+          python ghoststream_novel/inspect_independent_archives.py | tee ghoststream_independent_schemas.log
 
-      - name: Upload results
+      - name: Upload schema log
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: ghoststream-april-source-null
-          path: |
-            ghoststream_april_source_null/
-            ghoststream_april_source_null.log
-          if-no-files-found: warn
+          name: ghoststream-independent-schemas
+          path: ghoststream_independent_schemas.log
+          if-no-files-found: error
