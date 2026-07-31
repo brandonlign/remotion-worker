@@ -11,11 +11,7 @@ permissions:
   contents: read
 
 jobs:
-  novel-search:
-    strategy:
-      fail-fast: false
-      matrix:
-        month: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]
+  transient-outburst-gate:
     runs-on: ubuntu-latest
     timeout-minutes: 90
     steps:
@@ -30,20 +26,18 @@ jobs:
       - name: Install dependencies
         run: python -m pip install -r ghoststream_novel/requirements.txt
 
-      - name: Run monthly novel search
+      - name: Run transient outburst gate
         shell: bash
-        env:
-          GHOSTSTREAM_MONTH: ${{ matrix.month }}
         run: |
           set -o pipefail
-          python ghoststream_novel/run_month_v2.py | tee ghoststream_novel_search_${GHOSTSTREAM_MONTH}.log
+          python ghoststream_novel/validate_transient_outbursts.py | tee ghoststream_transient_outbursts.log
 
       - name: Upload results
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: ghoststream-novel-search-v2-${{ matrix.month }}
+          name: ghoststream-transient-outbursts
           path: |
-            ghoststream_novel_results/
-            ghoststream_novel_search_${{ matrix.month }}.log
+            ghoststream_transient_results/
+            ghoststream_transient_outbursts.log
           if-no-files-found: warn
