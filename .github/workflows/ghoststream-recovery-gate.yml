@@ -30,13 +30,13 @@ jobs:
         shell: bash
         run: |
           set -o pipefail
-          python ghoststream_runner/run_blind_scan_v2.py | tee ghoststream_blind_scan_v2.log
+          python ghoststream_runner/run_blind_scan_v2_fixed.py | tee ghoststream_blind_scan_v2.log
 
       - name: Upload results
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: ghoststream-blind-scan-v2
+          name: ghoststream-blind-scan-v2-fixed
           path: |
             ghoststream_blind_scan_v2_results/
             ghoststream_blind_scan_v2.log
