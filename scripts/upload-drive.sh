@@ -49,7 +49,7 @@ RCLONE_SCOPE="$(awk '
 ' "$RCLONE_CONFIG_FILE")"
 
 case "$RCLONE_SCOPE" in
-  drive.file|https://www.googleapis.com/auth/drive.file|drive|https://www.googleapis.com/auth/drive) ;;
+  ""|drive.file|https://www.googleapis.com/auth/drive.file|drive|https://www.googleapis.com/auth/drive) ;;
   *)
     echo "The configured Drive scope cannot perform this pinned private upload." >&2
     exit 65
