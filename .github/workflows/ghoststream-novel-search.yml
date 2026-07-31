@@ -30,7 +30,7 @@ jobs:
         shell: bash
         run: |
           set -o pipefail
-          python ghoststream_novel/run_novel_search.py | tee ghoststream_novel_search.log
+          python ghoststream_novel/run_novel_search_fixed.py | tee ghoststream_novel_search.log
 
       - name: Upload results
         if: always()
