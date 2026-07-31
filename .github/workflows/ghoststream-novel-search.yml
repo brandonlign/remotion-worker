@@ -11,33 +11,31 @@ permissions:
   contents: read
 
 jobs:
-  april-specification-curve:
+  resolve-edmond-2024:
     runs-on: ubuntu-latest
-    timeout-minutes: 180
+    timeout-minutes: 90
     steps:
       - uses: actions/checkout@v4
 
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.9"
-          cache: pip
-          cache-dependency-path: ghoststream_novel/requirements.txt
+          python-version: "3.11"
 
       - name: Install dependencies
-        run: python -m pip install -r ghoststream_novel/requirements.txt
+        run: python -m pip install requests==2.32.5 beautifulsoup4==4.15.0
 
-      - name: Run frozen 81-cell threshold grid
+      - name: Resolve and validate the public archive
         shell: bash
         run: |
           set -o pipefail
-          python ghoststream_novel/specification_curve_april.py | tee ghoststream_april_specification_curve.log
+          python ghoststream_novel/resolve_edmond_2024.py | tee ghoststream_edmond_resolver.log
 
-      - name: Upload results
+      - name: Upload resolution audit and archive
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: ghoststream-april-specification-curve
+          name: ghoststream-edmond-2024-resolution
           path: |
-            ghoststream_april_specification_curve/
-            ghoststream_april_specification_curve.log
+            ghoststream_edmond_resolver/
+            ghoststream_edmond_resolver.log
           if-no-files-found: warn
