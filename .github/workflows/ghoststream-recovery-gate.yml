@@ -26,18 +26,18 @@ jobs:
       - name: Install dependencies
         run: python -m pip install -r ghoststream_runner/requirements.txt
 
-      - name: Run preliminary blind residual scan
+      - name: Run source-preserving blind residual scan
         shell: bash
         run: |
           set -o pipefail
-          python ghoststream_runner/run_blind_scan.py | tee ghoststream_blind_scan.log
+          python ghoststream_runner/run_blind_scan_v2.py | tee ghoststream_blind_scan_v2.log
 
       - name: Upload results
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: ghoststream-blind-scan
+          name: ghoststream-blind-scan-v2
           path: |
-            ghoststream_blind_scan_results/
-            ghoststream_blind_scan.log
+            ghoststream_blind_scan_v2_results/
+            ghoststream_blind_scan_v2.log
           if-no-files-found: warn
