@@ -11,7 +11,7 @@ permissions:
   contents: read
 
 jobs:
-  parent-and-cams:
+  cams-validation:
     runs-on: ubuntu-latest
     timeout-minutes: 120
     steps:
@@ -26,18 +26,18 @@ jobs:
       - name: Install dependencies
         run: python -m pip install -r ghoststream_novel/requirements.txt
 
-      - name: Screen parent bodies and inspect CAMS
+      - name: Validate frozen stream in legacy CAMS
         shell: bash
         run: |
           set -o pipefail
-          python ghoststream_novel/screen_parent_and_inspect_cams.py | tee ghoststream_parent_cams.log
+          python ghoststream_novel/validate_cams_legacy.py | tee ghoststream_cams_validation.log
 
       - name: Upload results
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: ghoststream-parent-cams
+          name: ghoststream-cams-validation
           path: |
-            ghoststream_parent_cams/
-            ghoststream_parent_cams.log
+            ghoststream_cams_validation/
+            ghoststream_cams_validation.log
           if-no-files-found: warn
