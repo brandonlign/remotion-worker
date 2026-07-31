@@ -36,13 +36,13 @@ jobs:
           GHOSTSTREAM_MONTH: ${{ matrix.month }}
         run: |
           set -o pipefail
-          python ghoststream_novel/run_month.py | tee ghoststream_novel_search_${GHOSTSTREAM_MONTH}.log
+          python ghoststream_novel/run_month_v2.py | tee ghoststream_novel_search_${GHOSTSTREAM_MONTH}.log
 
       - name: Upload results
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: ghoststream-novel-search-${{ matrix.month }}
+          name: ghoststream-novel-search-v2-${{ matrix.month }}
           path: |
             ghoststream_novel_results/
             ghoststream_novel_search_${{ matrix.month }}.log
