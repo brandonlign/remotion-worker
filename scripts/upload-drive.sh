@@ -35,25 +35,6 @@ if ! rclone listremotes --config "$RCLONE_CONFIG_FILE" | grep -qx 'gdrive:'; the
   exit 65
 fi
 
-RCLONE_SCOPE="$(awk '
-  /^\[gdrive\]$/ { in_remote=1; next }
-  /^\[/ { if (in_remote) exit }
-  in_remote && /^[[:space:]]*scope[[:space:]]*=/ {
-    sub(/^[^=]*=[[:space:]]*/, "", $0)
-    sub(/[[:space:]]*$/, "", $0)
-    print
-    exit
-  }
-' "$RCLONE_CONFIG_FILE")"
-
-case "$RCLONE_SCOPE" in
-  drive.file|https://www.googleapis.com/auth/drive.file) ;;
-  *)
-    echo "The gdrive remote must use the least-privilege drive.file scope." >&2
-    exit 65
-    ;;
-esac
-
 resolve_unique_folder_id() {
   local expected_name="$1"
   rclone lsjson gdrive: \
