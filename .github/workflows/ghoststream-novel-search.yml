@@ -30,13 +30,13 @@ jobs:
         shell: bash
         run: |
           set -o pipefail
-          python ghoststream_novel/validate_cams_legacy.py | tee ghoststream_cams_validation.log
+          python ghoststream_novel/validate_cams_legacy_fixed.py | tee ghoststream_cams_validation.log
 
       - name: Upload results
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: ghoststream-cams-validation
+          name: ghoststream-cams-validation-fixed
           path: |
             ghoststream_cams_validation/
             ghoststream_cams_validation.log
