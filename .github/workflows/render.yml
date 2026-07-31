@@ -44,10 +44,39 @@ jobs:
           persist-credentials: false
           fetch-depth: 1
 
-      - name: Install system tools
+      - name: Prepare system tools
+        shell: bash
         run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y -qq ffmpeg rclone
+          set -Eeuo pipefail
+          mkdir -p "$RUNNER_TEMP/media-tools" "$RUNNER_TEMP/rclone" "$RUNNER_TEMP/bin" "$RUNNER_TEMP/render-result"
+
+          npm install \
+            --prefix "$RUNNER_TEMP/media-tools" \
+            --no-audit \
+            --no-fund \
+            --silent \
+            ffmpeg-static \
+            ffprobe-static
+
+          ffmpeg_binary="$(node -e 'console.log(require(process.argv[1]))' "$RUNNER_TEMP/media-tools/node_modules/ffmpeg-static")"
+          ffprobe_binary="$(node -e 'console.log(require(process.argv[1]).path)' "$RUNNER_TEMP/media-tools/node_modules/ffprobe-static")"
+          test -f "$ffmpeg_binary"
+          test -f "$ffprobe_binary"
+          install -m 0755 "$ffmpeg_binary" "$RUNNER_TEMP/bin/ffmpeg"
+          install -m 0755 "$ffprobe_binary" "$RUNNER_TEMP/bin/ffprobe"
+
+          curl --fail --silent --show-error --location \
+            https://downloads.rclone.org/rclone-current-linux-amd64.zip \
+            --output "$RUNNER_TEMP/rclone/rclone.zip"
+          python3 -m zipfile -e "$RUNNER_TEMP/rclone/rclone.zip" "$RUNNER_TEMP/rclone/unpacked"
+          rclone_binary="$(find "$RUNNER_TEMP/rclone/unpacked" -type f -name rclone -print -quit)"
+          test -n "$rclone_binary"
+          install -m 0755 "$rclone_binary" "$RUNNER_TEMP/bin/rclone"
+
+          echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
+          "$RUNNER_TEMP/bin/ffmpeg" -version | head -n 1
+          "$RUNNER_TEMP/bin/ffprobe" -version | head -n 1
+          "$RUNNER_TEMP/bin/rclone" version | head -n 1
 
       - name: Render and build private review package
         id: render
@@ -73,6 +102,11 @@ jobs:
             echo "Private render completed; uploading results."
           else
             echo "Private render failed; uploading the private diagnostic package."
+            echo "Sanitized private build failure summary:"
+            grep -Ei '(^|[[:space:]])(error|failed|could not|expected|not found|HTTP [45][0-9]{2}|TS[0-9]{4}|SyntaxError|TypeError|ReferenceError|RangeError)' "$RUNNER_TEMP/private-build.log" \
+              | tail -n 30 \
+              | sed -E 's/sk_[A-Za-z0-9_-]+/***REDACTED***/g; s/[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/***REDACTED_EMAIL***/g' \
+              || true
           fi
           exit 0
 
@@ -93,7 +127,10 @@ jobs:
             >"$RUNNER_TEMP/private-upload.log" 2>&1; then
             echo "Private Drive upload completed."
           else
-            echo "Private Drive upload failed. Check the configured Drive secret."
+            echo "Private Drive upload failed. Sanitized infrastructure error:"
+            tail -n 20 "$RUNNER_TEMP/private-upload.log" \
+              | sed -E 's/[A-Za-z0-9_-]{25,}/***REDACTED_TOKEN***/g' \
+              || true
             exit 1
           fi
 
