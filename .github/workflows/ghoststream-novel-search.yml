@@ -11,31 +11,33 @@ permissions:
   contents: read
 
 jobs:
-  mdc-checker:
+  april-activity-profile:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 120
     steps:
       - uses: actions/checkout@v4
 
       - uses: actions/setup-python@v5
         with:
           python-version: "3.9"
+          cache: pip
+          cache-dependency-path: ghoststream_novel/requirements.txt
 
-      - name: Install requests
-        run: python -m pip install requests==2.32.5
+      - name: Install dependencies
+        run: python -m pip install -r ghoststream_novel/requirements.txt
 
-      - name: Inspect checker
+      - name: Estimate source-normalized activity profile
         shell: bash
         run: |
           set -o pipefail
-          python ghoststream_novel/inspect_mdc_checker.py | tee ghoststream_mdc_checker.log
+          python ghoststream_novel/estimate_april_activity_profile.py | tee ghoststream_april_activity.log
 
-      - name: Upload files
+      - name: Upload results
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: ghoststream-mdc-checker
+          name: ghoststream-april-activity-profile
           path: |
-            mdc_checker/
-            ghoststream_mdc_checker.log
+            ghoststream_april_activity/
+            ghoststream_april_activity.log
           if-no-files-found: warn
