@@ -11,7 +11,7 @@ permissions:
   contents: read
 
 jobs:
-  mdc-links:
+  mdc-checker:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -21,19 +21,21 @@ jobs:
         with:
           python-version: "3.9"
 
-      - name: Install dependencies
-        run: python -m pip install requests==2.32.5 beautifulsoup4==4.15.0
+      - name: Install requests
+        run: python -m pip install requests==2.32.5
 
-      - name: Inspect MDC downloads
+      - name: Inspect checker
         shell: bash
         run: |
           set -o pipefail
-          python ghoststream_novel/inspect_mdc_download_links.py | tee ghoststream_mdc_links.log
+          python ghoststream_novel/inspect_mdc_checker.py | tee ghoststream_mdc_checker.log
 
-      - name: Upload log
+      - name: Upload files
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: ghoststream-mdc-links
-          path: ghoststream_mdc_links.log
-          if-no-files-found: error
+          name: ghoststream-mdc-checker
+          path: |
+            mdc_checker/
+            ghoststream_mdc_checker.log
+          if-no-files-found: warn
