@@ -70,7 +70,7 @@ jobs:
           printf '%s\n' "$code" > "$RUNNER_TEMP/render-result/exit-code.txt"
           echo "exit_code=$code" >> "$GITHUB_OUTPUT"
           if [ "$code" -eq 0 ]; then
-            echo "Private render completed; uploading results."
+            echo "Private render completed; preparing encrypted handoff."
           else
             echo "Private render failed; uploading the private diagnostic package."
           fi
@@ -79,6 +79,30 @@ jobs:
       - name: Remove private source checkout
         if: always()
         run: rm -rf private-source
+
+      - name: Encrypt private render handoff
+        if: steps.render.outputs.exit_code == '0'
+        shell: bash
+        run: |
+          tar -C "$RUNNER_TEMP/render-result" -czf "$RUNNER_TEMP/qr-liam-render-package.tar.gz" .
+          openssl cms -encrypt \
+            -binary \
+            -aes256 \
+            -in "$RUNNER_TEMP/qr-liam-render-package.tar.gz" \
+            -outform DER \
+            -out "$RUNNER_TEMP/qr-liam-render-package.cms" \
+            handoff/qr-liam-cert.pem
+          rm -f "$RUNNER_TEMP/qr-liam-render-package.tar.gz"
+
+      - name: Store ciphertext-only private handoff
+        if: steps.render.outputs.exit_code == '0'
+        uses: actions/upload-artifact@v4
+        with:
+          name: qr-liam-encrypted-render-handoff
+          path: ${{ runner.temp }}/qr-liam-render-package.cms
+          retention-days: 1
+          compression-level: 0
+          if-no-files-found: error
 
       - name: Upload privately to Google Drive
         if: always()
