@@ -11,9 +11,9 @@ permissions:
   contents: read
 
 jobs:
-  cams-validation:
+  independent-synthesis:
     runs-on: ubuntu-latest
-    timeout-minutes: 120
+    timeout-minutes: 150
     steps:
       - uses: actions/checkout@v4
 
@@ -26,18 +26,18 @@ jobs:
       - name: Install dependencies
         run: python -m pip install -r ghoststream_novel/requirements.txt
 
-      - name: Validate frozen stream in legacy CAMS
+      - name: Run pooled CAMS and SonotaCo synthesis
         shell: bash
         run: |
           set -o pipefail
-          python ghoststream_novel/validate_cams_legacy_fixed.py | tee ghoststream_cams_validation.log
+          python ghoststream_novel/synthesize_independent_archives.py | tee ghoststream_independent_synthesis.log
 
       - name: Upload results
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: ghoststream-cams-validation-fixed
+          name: ghoststream-independent-synthesis
           path: |
-            ghoststream_cams_validation/
-            ghoststream_cams_validation.log
+            ghoststream_independent_synthesis/
+            ghoststream_independent_synthesis.log
           if-no-files-found: warn
