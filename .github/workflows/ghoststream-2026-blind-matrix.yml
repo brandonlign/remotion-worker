@@ -1,0 +1,103 @@
+name: GhostStream 2026 blind discovery matrix
+
+on:
+  pull_request:
+    paths:
+      - "ghoststream_novel/run_novel_search.py"
+      - "ghoststream_novel/run_month_v2.py"
+      - "ghoststream_novel/run_month_year_v3.py"
+      - "ghoststream_novel/verify_2026_blind_matrix.py"
+      - ".github/workflows/ghoststream-2026-blind-matrix.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  blind-discovery-matrix:
+    runs-on: ubuntu-latest
+    timeout-minutes: 240
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.9"
+
+      - name: Install recovered environment
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip install --upgrade pip
+          python -m pip install -r ghoststream_novel/requirements.txt
+          python -m pip freeze | sort | tee ghoststream_blind_environment.txt
+
+      - name: Verify recovered discovery source
+        shell: bash
+        run: |
+          set -euo pipefail
+          sha256sum \
+            ghoststream_novel/run_novel_search.py \
+            ghoststream_novel/run_month_v2.py \
+            ghoststream_novel/run_month_year_v3.py \
+            ghoststream_novel/verify_2026_blind_matrix.py \
+            ghoststream_novel/requirements.txt \
+            | tee ghoststream_blind_source_sha256.txt
+          python -m py_compile \
+            ghoststream_novel/run_novel_search.py \
+            ghoststream_novel/run_month_v2.py \
+            ghoststream_novel/run_month_year_v3.py \
+            ghoststream_novel/verify_2026_blind_matrix.py
+
+      - name: Run January-July 2026 discovery matrix
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf ghoststream_blind_2026 ghoststream_novel_results
+          mkdir -p ghoststream_blind_2026
+          for month in 1 2 3 4 5 6 7; do
+            month2=$(printf '%02d' "$month")
+            echo "=== 2026-${month2} ==="
+            rm -rf ghoststream_novel_results
+            GHOSTSTREAM_YEAR=2026 GHOSTSTREAM_MONTH="$month" \
+              python ghoststream_novel/run_month_year_v3.py \
+              2>&1 | tee "ghoststream_blind_2026_${month2}.log"
+            test -s ghoststream_novel_results/ghoststream_novel_search.json
+            mv ghoststream_novel_results "ghoststream_blind_2026/2026-${month2}"
+          done
+
+      - name: Verify recovered April discovery lineage
+        shell: bash
+        run: |
+          set -euo pipefail
+          python ghoststream_novel/verify_2026_blind_matrix.py \
+            2>&1 | tee ghoststream_blind_verification.log
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          result = json.loads(
+              Path("ghoststream_blind_rediscovery_evidence/blind_rediscovery.json").read_text()
+          )
+          print(json.dumps(result, indent=2))
+          assert result["status"] == "EXACT_2026_BLIND_REDISCOVERY"
+          assert result["months_scanned"] == [1, 2, 3, 4, 5, 6, 7]
+          assert result["validation_years"] == [2025, 2024]
+          assert result["full_gate_survivors_across_matrix"] == 1
+          assert result["additional_non_april_survivors"] == []
+          PY
+
+      - name: Upload exact blind-discovery evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ghoststream-2026-blind-discovery-matrix
+          path: |
+            ghoststream_blind_rediscovery_evidence/
+            ghoststream_blind_2026/
+            ghoststream_blind_2026_*.log
+            ghoststream_blind_verification.log
+            ghoststream_blind_environment.txt
+            ghoststream_blind_source_sha256.txt
+          if-no-files-found: error
+          retention-days: 90
