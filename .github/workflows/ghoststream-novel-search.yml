@@ -11,9 +11,9 @@ permissions:
   contents: read
 
 jobs:
-  resolve-edmond-web-archives:
+  inspect-shober-edmond:
     runs-on: ubuntu-latest
-    timeout-minutes: 120
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
 
@@ -22,20 +22,20 @@ jobs:
           python-version: "3.11"
 
       - name: Install dependencies
-        run: python -m pip install requests==2.32.5 beautifulsoup4==4.15.0
+        run: python -m pip install pandas==2.3.1 requests==2.32.5
 
-      - name: Resolve annual or Q2 archive
+      - name: Download, verify, and inspect subset
         shell: bash
         run: |
           set -o pipefail
-          python ghoststream_novel/resolve_edmond_archives.py | tee ghoststream_edmond_archive_resolution.log
+          python ghoststream_novel/inspect_shober_edmond.py | tee ghoststream_shober_edmond_inspection.log
 
-      - name: Upload resolution audit and recovered archive
+      - name: Upload inspection and source file
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: ghoststream-edmond-archive-resolution
+          name: ghoststream-shober-edmond-inspection
           path: |
-            ghoststream_edmond_archive_resolution/
-            ghoststream_edmond_archive_resolution.log
+            ghoststream_shober_edmond_inspection/
+            ghoststream_shober_edmond_inspection.log
           if-no-files-found: warn
