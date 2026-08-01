@@ -1,0 +1,75 @@
+name: GhostStream corrected method gate
+
+on:
+  pull_request:
+    paths:
+      - "ghoststream_runner/run_corrected_method_holdout.py"
+      - ".github/workflows/ghoststream-corrected-method-gate.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  corrected-method-gate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.9"
+
+      - name: Install exact recovered environment
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r ghoststream_runner/requirements.txt
+          python -m pip freeze | sort | tee ghoststream_method_v3_environment.txt
+
+      - name: Verify source
+        run: |
+          sha256sum \
+            ghoststream_runner/run_gate.py \
+            ghoststream_runner/run_gate_v2.py \
+            ghoststream_runner/run_corrected_method_holdout.py \
+            ghoststream_runner/requirements.txt \
+            | tee ghoststream_method_v3_source_sha256.txt
+          python -m py_compile \
+            ghoststream_runner/run_gate.py \
+            ghoststream_runner/run_gate_v2.py \
+            ghoststream_runner/run_corrected_method_holdout.py
+
+      - name: Run prospective 2024 holdout
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd ghoststream_runner
+          python run_corrected_method_holdout.py 2>&1 | tee ../ghoststream_method_v3.log
+
+      - name: Validate result
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          result = json.loads(Path("ghoststream_runner/ghoststream_method_controls_v3/method_controls_v3.json").read_text())
+          print(json.dumps(result, indent=2))
+          assert result["status"] == "CORRECTED_INDEPENDENT_YEAR_CONTROL_PASS"
+          assert result["eligible_controls"] == 3
+          assert result["recovered_controls"] == 3
+          assert result["non_target_degeneracy_passes"] == 3
+          assert result["passed"] is True
+          PY
+
+      - name: Upload evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ghoststream-corrected-method-gate
+          path: |
+            ghoststream_runner/ghoststream_method_controls_v3/
+            ghoststream_method_v3.log
+            ghoststream_method_v3_environment.txt
+            ghoststream_method_v3_source_sha256.txt
+          if-no-files-found: error
+          retention-days: 90
