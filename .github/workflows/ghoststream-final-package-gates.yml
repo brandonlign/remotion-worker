@@ -1,5 +1,4 @@
 name: GhostStream final package gates
-# Retriggered after runner handoff; no scientific logic changed.
 
 on:
   pull_request:
@@ -26,7 +25,9 @@ jobs:
         with:
           repository: brandonlign/isef
           ref: agent/ghoststream-pilot
+          token: ${{ secrets.SOURCE_REPO_TOKEN }}
           path: isef
+          persist-credentials: false
           fetch-depth: 1
 
       - uses: actions/setup-python@v5
@@ -108,8 +109,9 @@ jobs:
               "failure_names": failed,
           }, indent=2))
           assert result["verdict"] == "PASS_RECOVERED_MDC_PACKAGE_INTERNALLY_CONSISTENT"
+          assert result["check_count"] == 133
+          assert result["passed_checks"] == 133
           assert result["failed_checks"] == 0
-          assert result["check_count"] > 125
           assert result["recovered_analysis"]["discovery_lineage_reproduced"] is True
           assert result["recovered_analysis"]["submission_allowed"] is False
           PY
@@ -167,6 +169,7 @@ jobs:
               }
               assert required <= names, sorted(required - names)
               manifest = json.loads(archive.read("MANIFEST.json"))
+              assert manifest["source_commit"] == Path("ghoststream_isef_source_sha.txt").read_text().strip()
               assert manifest["reproducibility_status"] == "source_recovered_primary_internal_external_method_and_blind_evidence_complete"
           print(json.dumps(result, indent=2))
           PY
@@ -202,9 +205,11 @@ jobs:
           source_sha = Path("ghoststream_isef_source_sha.txt").read_text().strip()
           summary = {
               "status": "PASS_GHOSTSTREAM_FINAL_PACKAGE_GATES",
+              "artifact_name": "ghoststream-final-package-gates",
               "isef_source_sha": source_sha,
               "package_audit_verdict": audit["verdict"],
               "package_audit_checks": audit["check_count"],
+              "package_audit_passes": audit["passed_checks"],
               "package_audit_failures": audit["failed_checks"],
               "expert_bundle_verdict": bundle["verdict"],
               "expert_bundle_files": bundle["included_files"],
