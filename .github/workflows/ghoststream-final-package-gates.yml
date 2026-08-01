@@ -1,0 +1,248 @@
+name: GhostStream final package gates
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/ghoststream-final-package-gates.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  final-package-gates:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Check out worker evidence branch
+        uses: actions/checkout@v4
+        with:
+          ref: agent/ghoststream-final-package-gates
+          fetch-depth: 0
+
+      - name: Check out current GhostStream branch
+        uses: actions/checkout@v4
+        with:
+          repository: brandonlign/isef
+          ref: agent/ghoststream-pilot
+          path: isef
+          fetch-depth: 1
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install package-audit dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install numpy==1.26.4 pandas==2.2.3
+
+      - name: Record source state and compile final tools
+        shell: bash
+        run: |
+          set -euo pipefail
+          git -C isef rev-parse HEAD | tee ghoststream_isef_source_sha.txt
+          python -m py_compile \
+            isef/pilots/ghoststream/reconstruction/finalize_recovery_metadata.py \
+            isef/pilots/ghoststream/april_stream/mdc/audit_mdc_package_consistency.py \
+            isef/pilots/ghoststream/april_stream/mdc/audit_recovered_mdc_package.py \
+            isef/pilots/ghoststream/april_stream/build_expert_review_bundle.py
+
+      - name: Finalize machine-readable recovery metadata
+        shell: bash
+        working-directory: isef
+        run: |
+          set -euo pipefail
+          python pilots/ghoststream/reconstruction/finalize_recovery_metadata.py \
+            2>&1 | tee ../ghoststream_finalize_metadata.log
+
+      - name: Validate finalized metadata
+        working-directory: isef
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          final = json.loads(Path("pilots/ghoststream/results/ghoststream_final_summary.json").read_text())
+          candidate = json.loads(Path("pilots/ghoststream/april_stream/candidate_solution.json").read_text())
+          assert final["overall_verdict"] == "GO_SCIENTIFIC_CANDIDATE_PUBLICATION_HOLD"
+          assert final["blind_discovery_reproduction"]["status"] == "EXACT_2026_BLIND_REDISCOVERY"
+          assert final["blind_discovery_reproduction"]["full_gate_survivors"] == 1
+          assert final["method_control_reconciliation"]["historical_v2"]["aggregate_verdict"] == "NO_GO_DEGENERATE_PARENT_CLUSTER"
+          assert final["method_control_reconciliation"]["corrected_independent_2024"]["status"] == "CORRECTED_INDEPENDENT_YEAR_CONTROL_PASS"
+          repro = final["reproducibility_status"]
+          assert repro["discovery_lineage_reproduced"] is True
+          assert repro["publication_or_formal_mdc_submission_allowed"] is False
+          assert candidate["computational_recovery"]["blind_discovery"] == "EXACT_2026_BLIND_REDISCOVERY"
+          assert candidate["method_control_reconciliation"]["corrected_independent_2024"]["passed"] is True
+          assert candidate["novelty_audit"]["current_jpl_screen"]["objects_with_orbit_distance_le_0_15"] == 0
+          print(json.dumps({
+              "blind": final["blind_discovery_reproduction"]["status"],
+              "historical_method": final["method_control_reconciliation"]["historical_v2"]["aggregate_verdict"],
+              "corrected_method": final["method_control_reconciliation"]["corrected_independent_2024"]["status"],
+              "publication_allowed": repro["publication_or_formal_mdc_submission_allowed"],
+          }, indent=2))
+          PY
+
+      - name: Run final recovered MDC package audit
+        shell: bash
+        working-directory: isef
+        run: |
+          set -euo pipefail
+          rm -rf ../ghoststream_final_package_audit
+          python pilots/ghoststream/april_stream/mdc/audit_recovered_mdc_package.py \
+            --output-dir ../ghoststream_final_package_audit \
+            2>&1 | tee ../ghoststream_final_package_audit.log
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          result = json.loads(Path("../ghoststream_final_package_audit/mdc_package_consistency_audit.json").read_text())
+          failed = [item["name"] for item in result["checks"] if not item["passed"]]
+          print(json.dumps({
+              "verdict": result["verdict"],
+              "check_count": result["check_count"],
+              "passed_checks": result["passed_checks"],
+              "failed_checks": result["failed_checks"],
+              "failure_names": failed,
+          }, indent=2))
+          assert result["verdict"] == "PASS_RECOVERED_MDC_PACKAGE_INTERNALLY_CONSISTENT"
+          assert result["failed_checks"] == 0
+          assert result["check_count"] > 125
+          assert result["recovered_analysis"]["discovery_lineage_reproduced"] is True
+          assert result["recovered_analysis"]["submission_allowed"] is False
+          PY
+
+      - name: Install canonical audit into local package
+        shell: bash
+        run: |
+          set -euo pipefail
+          cp ghoststream_final_package_audit/mdc_package_consistency_audit.json \
+            isef/pilots/ghoststream/april_stream/mdc/mdc_package_consistency_summary.json
+          cp ghoststream_final_package_audit/MDC_PACKAGE_CONSISTENCY_AUDIT.md \
+            isef/pilots/ghoststream/april_stream/mdc/MDC_PACKAGE_CONSISTENCY_AUDIT.md
+
+      - name: Build final deterministic code-inclusive expert bundle
+        shell: bash
+        working-directory: isef
+        run: |
+          set -euo pipefail
+          rm -rf ../ghoststream_final_expert_bundle
+          source_sha=$(git rev-parse HEAD)
+          python pilots/ghoststream/april_stream/build_expert_review_bundle.py \
+            --output-dir ../ghoststream_final_expert_bundle \
+            --commit-sha "$source_sha" \
+            2>&1 | tee ../ghoststream_final_expert_bundle.log
+
+      - name: Validate final expert bundle
+        run: |
+          python - <<'PY'
+          import json
+          import zipfile
+          from pathlib import Path
+
+          result = json.loads(Path("ghoststream_final_expert_bundle/expert_review_bundle_build.json").read_text())
+          assert result["verdict"] == "PASS_CODE_INCLUSIVE_EXPERT_REVIEW_BUNDLE_BUILT"
+          assert result["included_files"] >= 110
+          assert result["zip_members"] == result["included_files"] + 2
+          path = Path(result["output"])
+          with zipfile.ZipFile(path) as archive:
+              assert archive.testzip() is None
+              names = set(archive.namelist())
+              required = {
+                  "README.md",
+                  "MANIFEST.json",
+                  "recovered_pipeline/SOURCE_MANIFEST.json",
+                  "reconstruction/exact_blind_rediscovery/blind_rediscovery.json",
+                  "reconstruction/exact_blind_rediscovery/repaired_run_month_year_v3.py",
+                  "reconstruction/exact_method_controls/method_controls.json",
+                  "reconstruction/exact_method_controls_v3/method_controls_v3.json",
+                  "reconstruction/METHOD_CONTROL_RECONCILIATION.md",
+                  "reconstruction/exact_recovered/exact_reproduction.json",
+                  "reconstruction/exact_downstream/downstream_reproduction.json",
+                  "reconstruction/exact_external/external_reproduction.json",
+                  "april_stream/mdc/mdc_package_consistency_summary.json",
+                  "april_stream/mdc/MDC_PACKAGE_CONSISTENCY_AUDIT.md",
+              }
+              assert required <= names, sorted(required - names)
+              manifest = json.loads(archive.read("MANIFEST.json"))
+              assert manifest["reproducibility_status"] == "source_recovered_primary_internal_external_method_and_blind_evidence_complete"
+          print(json.dumps(result, indent=2))
+          PY
+
+      - name: Stage generated canonical outputs
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf ghoststream_final_package_outputs
+          mkdir -p ghoststream_final_package_outputs
+          cp isef/pilots/ghoststream/results/ghoststream_final_summary.json \
+            ghoststream_final_package_outputs/
+          cp isef/pilots/ghoststream/april_stream/candidate_solution.json \
+            ghoststream_final_package_outputs/
+          cp ghoststream_final_package_audit/mdc_package_consistency_audit.json \
+            ghoststream_final_package_outputs/mdc_package_consistency_summary.json
+          cp ghoststream_final_package_audit/MDC_PACKAGE_CONSISTENCY_AUDIT.md \
+            ghoststream_final_package_outputs/
+          cp ghoststream_final_expert_bundle/expert_review_bundle_build.json \
+            ghoststream_final_package_outputs/
+          python - <<'PY'
+          import json
+          import zipfile
+          from pathlib import Path
+
+          zip_path = Path("ghoststream_final_expert_bundle/GhostStream_Expert_Review_Bundle.zip")
+          with zipfile.ZipFile(zip_path) as archive:
+              Path("ghoststream_final_package_outputs/expert_bundle_manifest.json").write_bytes(
+                  archive.read("MANIFEST.json")
+              )
+          audit = json.loads(Path("ghoststream_final_package_outputs/mdc_package_consistency_summary.json").read_text())
+          bundle = json.loads(Path("ghoststream_final_package_outputs/expert_review_bundle_build.json").read_text())
+          source_sha = Path("ghoststream_isef_source_sha.txt").read_text().strip()
+          summary = {
+              "status": "PASS_GHOSTSTREAM_FINAL_PACKAGE_GATES",
+              "isef_source_sha": source_sha,
+              "package_audit_verdict": audit["verdict"],
+              "package_audit_checks": audit["check_count"],
+              "package_audit_failures": audit["failed_checks"],
+              "expert_bundle_verdict": bundle["verdict"],
+              "expert_bundle_files": bundle["included_files"],
+              "expert_bundle_zip_sha256": bundle["zip_sha256"],
+              "publication_or_formal_submission_allowed": False,
+          }
+          Path("ghoststream_final_package_outputs/final_gate_summary.json").write_text(
+              json.dumps(summary, indent=2) + "\n"
+          )
+          print(json.dumps(summary, indent=2))
+          PY
+
+      - name: Upload complete final package evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ghoststream-final-package-gates
+          path: |
+            ghoststream_final_package_outputs/
+            ghoststream_final_package_audit/
+            ghoststream_final_expert_bundle/
+            ghoststream_finalize_metadata.log
+            ghoststream_final_package_audit.log
+            ghoststream_final_expert_bundle.log
+            ghoststream_isef_source_sha.txt
+          if-no-files-found: warn
+          retention-days: 90
+
+      - name: Commit generated text outputs to worker evidence branch
+        if: success()
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add ghoststream_final_package_outputs
+          if git diff --cached --quiet; then
+            echo "Generated final package outputs already match."
+            exit 0
+          fi
+          git commit -m "Record GhostStream final package outputs"
+          git push origin HEAD:agent/ghoststream-final-package-gates
