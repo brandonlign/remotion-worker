@@ -11,31 +11,33 @@ permissions:
   contents: read
 
 jobs:
-  resolve-edmond-2024:
+  external-zero-speed-synthesis:
     runs-on: ubuntu-latest
-    timeout-minutes: 90
+    timeout-minutes: 180
     steps:
       - uses: actions/checkout@v4
 
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.11"
+          python-version: "3.9"
+          cache: pip
+          cache-dependency-path: ghoststream_novel/requirements.txt
 
       - name: Install dependencies
-        run: python -m pip install requests==2.32.5 beautifulsoup4==4.15.0
+        run: python -m pip install -r ghoststream_novel/requirements.txt
 
-      - name: Resolve and validate official EDMOND archive
+      - name: Run uniform zero-speed-drift synthesis
         shell: bash
         run: |
           set -o pipefail
-          python ghoststream_novel/resolve_edmond_2024.py | tee ghoststream_edmond_resolver.log
+          python ghoststream_novel/synthesize_all_external_archives_zero_speed.py | tee ghoststream_all_external_zero_speed.log
 
       - name: Upload results
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: ghoststream-edmond-2024-resolution
+          name: ghoststream-all-external-zero-speed
           path: |
-            ghoststream_edmond_resolver/
-            ghoststream_edmond_resolver.log
+            ghoststream_all_external_zero_speed/
+            ghoststream_all_external_zero_speed.log
           if-no-files-found: warn
