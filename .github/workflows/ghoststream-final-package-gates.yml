@@ -1,4 +1,5 @@
 name: GhostStream final package gates
+# Retriggered after runner handoff; no scientific logic changed.
 
 on:
   pull_request:
