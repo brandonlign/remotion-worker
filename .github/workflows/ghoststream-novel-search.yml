@@ -11,9 +11,9 @@ permissions:
   contents: read
 
 jobs:
-  resolve-edmond-2024:
+  resolve-edmond-web-archives:
     runs-on: ubuntu-latest
-    timeout-minutes: 90
+    timeout-minutes: 120
     steps:
       - uses: actions/checkout@v4
 
@@ -24,18 +24,18 @@ jobs:
       - name: Install dependencies
         run: python -m pip install requests==2.32.5 beautifulsoup4==4.15.0
 
-      - name: Resolve and validate the public archive
+      - name: Resolve annual or Q2 archive
         shell: bash
         run: |
           set -o pipefail
-          python ghoststream_novel/resolve_edmond_2024.py | tee ghoststream_edmond_resolver.log
+          python ghoststream_novel/resolve_edmond_archives.py | tee ghoststream_edmond_archive_resolution.log
 
-      - name: Upload resolution audit and archive
+      - name: Upload resolution audit and recovered archive
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: ghoststream-edmond-2024-resolution
+          name: ghoststream-edmond-archive-resolution
           path: |
-            ghoststream_edmond_resolver/
-            ghoststream_edmond_resolver.log
+            ghoststream_edmond_archive_resolution/
+            ghoststream_edmond_archive_resolution.log
           if-no-files-found: warn
