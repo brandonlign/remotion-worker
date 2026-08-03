@@ -1,0 +1,41 @@
+name: Keep Telic scheduler active
+
+on:
+  schedule:
+    - cron: "41 14 1 * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: telic-scheduler-heartbeat
+  cancel-in-progress: false
+
+jobs:
+  heartbeat:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Check out worker with repository-scoped token
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.WORKER_TOKEN }}
+          fetch-depth: 0
+
+      - name: Record monthly repository activity
+        shell: bash
+        run: |
+          set -euo pipefail
+          node - <<'NODE'
+          const fs = require("node:fs");
+          const file = "ops/heartbeat.json";
+          const current = JSON.parse(fs.readFileSync(file, "utf8"));
+          current.lastHeartbeatAt = new Date().toISOString();
+          fs.writeFileSync(file, `${JSON.stringify(current, null, 2)}\n`);
+          NODE
+          git config user.name "telic-autopilot[bot]"
+          git config user.email "telic-autopilot[bot]@users.noreply.github.com"
+          git add ops/heartbeat.json
+          git commit -m "Keep Telic scheduler active"
+          git push origin HEAD:main
