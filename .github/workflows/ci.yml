@@ -23,3 +23,38 @@ jobs:
 
       - name: Validate worker files
         run: npm run check
+
+  validate-private-voice-hardening:
+    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Check out private hardening branch
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ secrets.SOURCE_REPOSITORY }}
+          ref: agent/telic-autopilot-hardening
+          token: ${{ secrets.SOURCE_REPO_TOKEN }}
+          persist-credentials: false
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Validate private hardening without public output
+        shell: bash
+        run: |
+          if ! {
+            npm ci --no-audit --no-fund &&
+            node --check scripts/autopilot/generate-openai-voiceover.mjs &&
+            node --check scripts/autopilot/prepare-render.mjs &&
+            npm run lint;
+          } >"$RUNNER_TEMP/private-validation.log" 2>&1; then
+            rm -f "$RUNNER_TEMP/private-validation.log"
+            echo "Private voice hardening validation failed; details were withheld from the public log."
+            exit 1
+          fi
+          rm -f "$RUNNER_TEMP/private-validation.log"
+          echo "Private voice hardening passed syntax, lint, and type validation."
