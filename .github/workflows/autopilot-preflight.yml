@@ -1,0 +1,166 @@
+name: Telic autopilot preflight
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/autopilot.yml
+      - .github/workflows/render.yml
+      - .github/workflows/autopilot-preflight.yml
+      - scripts/upload-youtube.mjs
+      - scripts/create-youtube-refresh-token.mjs
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  preflight:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      SOURCE_REPOSITORY: ${{ secrets.SOURCE_REPOSITORY }}
+      SOURCE_REPO_TOKEN: ${{ secrets.SOURCE_REPO_TOKEN }}
+      SOURCE_REPO_WRITE_TOKEN: ${{ secrets.SOURCE_REPO_WRITE_TOKEN }}
+      WORKER_TOKEN: ${{ secrets.WORKER_TOKEN }}
+      RCLONE_CONFIG_B64: ${{ secrets.RCLONE_CONFIG_B64 }}
+      ELEVENLABS_API_KEYS_JSON: ${{ secrets.ELEVENLABS_API_KEYS_JSON }}
+      ELEVENLABS_API_KEY: ${{ secrets.ELEVENLABS_API_KEY }}
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      YOUTUBE_CLIENT_ID: ${{ secrets.YOUTUBE_CLIENT_ID }}
+      YOUTUBE_CLIENT_SECRET: ${{ secrets.YOUTUBE_CLIENT_SECRET }}
+      YOUTUBE_REFRESH_TOKEN: ${{ secrets.YOUTUBE_REFRESH_TOKEN }}
+      AUTOPUBLISH_ENABLED: ${{ vars.AUTOPUBLISH_ENABLED }}
+      AUTOPILOT_KILL_SWITCH: ${{ vars.AUTOPILOT_KILL_SWITCH }}
+
+    steps:
+      - name: Check out worker
+        uses: actions/checkout@v4
+
+      - name: Install validation tools
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq rclone
+
+      - name: Validate required configuration
+        shell: bash
+        run: |
+          set -euo pipefail
+          missing=()
+          for name in SOURCE_REPOSITORY SOURCE_REPO_TOKEN SOURCE_REPO_WRITE_TOKEN WORKER_TOKEN RCLONE_CONFIG_B64 OPENAI_API_KEY YOUTUBE_CLIENT_ID YOUTUBE_CLIENT_SECRET YOUTUBE_REFRESH_TOKEN; do
+            if [ -z "${!name:-}" ]; then
+              missing+=("$name")
+            fi
+          done
+          if [ -z "${ELEVENLABS_API_KEYS_JSON:-}" ] && [ -z "${ELEVENLABS_API_KEY:-}" ]; then
+            missing+=("ELEVENLABS_API_KEYS_JSON_or_ELEVENLABS_API_KEY")
+          fi
+          if [ "${SOURCE_REPOSITORY:-}" != "brandonlign/remotion-video" ]; then
+            missing+=("SOURCE_REPOSITORY_must_equal_brandonlign/remotion-video")
+          fi
+          if [ "${AUTOPUBLISH_ENABLED:-0}" != "1" ]; then
+            missing+=("AUTOPUBLISH_ENABLED_must_equal_1")
+          fi
+          if [ "${AUTOPILOT_KILL_SWITCH:-0}" = "1" ]; then
+            missing+=("AUTOPILOT_KILL_SWITCH_must_not_equal_1")
+          fi
+          if [ "${#missing[@]}" -gt 0 ]; then
+            printf 'Missing or inactive Telic configuration:\n'
+            printf ' - %s\n' "${missing[@]}"
+            exit 1
+          fi
+          echo "Required Telic secret names and variables are configured."
+
+      - name: Validate repository tokens
+        shell: bash
+        run: |
+          set -euo pipefail
+          node - <<'NODE'
+          const checks = [
+            [process.env.SOURCE_REPO_TOKEN, "brandonlign/remotion-video", false, "SOURCE_REPO_TOKEN"],
+            [process.env.SOURCE_REPO_WRITE_TOKEN, "brandonlign/remotion-video", true, "SOURCE_REPO_WRITE_TOKEN"],
+            [process.env.WORKER_TOKEN, "brandonlign/remotion-worker", true, "WORKER_TOKEN"],
+          ];
+          for (const [token, repository, needsPush, name] of checks) {
+            const response = await fetch(`https://api.github.com/repos/${repository}`, {
+              headers: {
+                Authorization: `Bearer ${token}`,
+                Accept: "application/vnd.github+json",
+                "X-GitHub-Api-Version": "2022-11-28",
+                "User-Agent": "telic-preflight",
+              },
+            });
+            if (!response.ok) throw new Error(`${name} cannot access ${repository} (HTTP ${response.status}).`);
+            const payload = await response.json();
+            if (!payload.permissions?.pull) throw new Error(`${name} lacks repository read access.`);
+            if (needsPush && !payload.permissions?.push) throw new Error(`${name} lacks repository write access.`);
+          }
+          console.log("Repository tokens passed access checks.");
+          NODE
+
+      - name: Validate OpenAI model access
+        shell: bash
+        run: |
+          set -euo pipefail
+          status="$(curl -sS -o "$RUNNER_TEMP/openai-model.json" -w '%{http_code}' \
+            -H "Authorization: Bearer $OPENAI_API_KEY" \
+            https://api.openai.com/v1/models/gpt-5.2)"
+          if [ "$status" != "200" ]; then
+            echo "OPENAI_API_KEY cannot access gpt-5.2 (HTTP $status)."
+            rm -f "$RUNNER_TEMP/openai-model.json"
+            exit 1
+          fi
+          rm -f "$RUNNER_TEMP/openai-model.json"
+          echo "OpenAI model access passed."
+
+      - name: Validate Google Drive credential
+        shell: bash
+        run: |
+          set -euo pipefail
+          config="$RUNNER_TEMP/rclone.conf"
+          printf '%s' "$RCLONE_CONFIG_B64" | base64 --decode > "$config"
+          chmod 600 "$config"
+          rclone listremotes --config "$config" | grep -qx 'gdrive:'
+          scope="$(awk '
+            /^\[gdrive\]$/ { in_remote=1; next }
+            /^\[/ { if (in_remote) exit }
+            in_remote && /^[[:space:]]*scope[[:space:]]*=/ {
+              sub(/^[^=]*=[[:space:]]*/, "", $0)
+              sub(/[[:space:]]*$/, "", $0)
+              print
+              exit
+            }
+          ' "$config")"
+          case "$scope" in
+            drive.file|https://www.googleapis.com/auth/drive.file) ;;
+            *) echo "RCLONE_CONFIG_B64 does not use drive.file scope."; exit 1 ;;
+          esac
+          rclone lsd gdrive: --config "$config" --log-level ERROR >/dev/null
+          rm -f "$config"
+          echo "Google Drive credential passed."
+
+      - name: Validate YouTube OAuth refresh
+        shell: bash
+        run: |
+          set -euo pipefail
+          node - <<'NODE'
+          const body = new URLSearchParams({
+            client_id: process.env.YOUTUBE_CLIENT_ID,
+            client_secret: process.env.YOUTUBE_CLIENT_SECRET,
+            refresh_token: process.env.YOUTUBE_REFRESH_TOKEN,
+            grant_type: "refresh_token",
+          });
+          const response = await fetch("https://oauth2.googleapis.com/token", {
+            method: "POST",
+            headers: { "Content-Type": "application/x-www-form-urlencoded" },
+            body,
+          });
+          const payload = await response.json().catch(() => ({}));
+          if (!response.ok || typeof payload.access_token !== "string") {
+            throw new Error(`YouTube OAuth refresh failed (HTTP ${response.status}).`);
+          }
+          console.log("YouTube OAuth refresh passed.");
+          NODE
+
+      - name: Report preflight success
+        run: echo "Telic autopilot cloud prerequisites passed."
