@@ -1,0 +1,47 @@
+name: Build Mog SCUT calibration
+
+on:
+  push:
+    branches:
+      - agent/mog-scut-calibration-v2
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  convert:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Check out worker repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install converter
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install "tensorflow-cpu==2.15.1" "tensorflowjs==4.15.0" "h5py<4"
+
+      - name: Build browser model and empirical distribution
+        run: python scripts/build_mog_scut_calibration.py
+
+      - name: Show artifact contents
+        run: |
+          find build/mog-scut -maxdepth 2 -type f -printf '%p %s bytes\n' | sort
+          cat build/mog-scut/metadata.json
+          cat build/mog-scut/manifest.json
+
+      - name: Upload conversion artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: mog-scut-calibration
+          path: build/mog-scut
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 7
