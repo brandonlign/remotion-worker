@@ -57,6 +57,8 @@ Permissions:
 
 Purpose: creates an opaque `render/<job-id>` branch and temporary draft PR. This must be a real fine-grained token. GitHub events created with the workflow's built-in `GITHUB_TOKEN` do not start another workflow.
 
+The same repository-scoped token records a harmless monthly heartbeat commit. GitHub can disable scheduled workflows in a public repository after prolonged inactivity; the heartbeat keeps the scheduler repository active even if no video job completes for an extended period.
+
 Keep the existing read-only `SOURCE_REPO_TOKEN` for the render workflow. Do not replace it with the write token.
 
 ## 4. Public worker secrets
@@ -82,6 +84,8 @@ Repository variables:
 - `AUTOPILOT_KILL_SWITCH=1` during setup
 - `AUTOPUBLISH_ENABLED=0` during setup
 
+With publication disabled, render requests still produce a complete private Drive candidate and close successfully. This allows code and rendering to be tested before YouTube credentials are activated.
+
 ## 5. Safe activation order
 
 1. Merge the private control-plane changes while `automation/config.json` remains disabled.
@@ -105,6 +109,12 @@ AUTOPILOT_KILL_SWITCH=1
 
 The next scheduler run exits before generating or committing a job. Existing videos already accepted by YouTube must be managed in YouTube Studio.
 
-## 7. External failure modes
+## 7. Scheduler continuity
+
+The public worker runs a monthly heartbeat workflow that updates `ops/heartbeat.json` with the repository-scoped `WORKER_TOKEN`. This creates real repository activity before GitHub's public-repository inactivity window can disable scheduled workflows.
+
+The normal production flow also creates and closes render pull requests, so an active channel naturally refreshes repository activity. The separate heartbeat protects periods in which all production jobs are skipped or blocked.
+
+## 8. External failure modes
 
 The system does not depend on a personal laptop after activation, but no third-party pipeline is immortal. It can stop because of revoked OAuth consent, invalidated tokens, exhausted credits, billing failures, quota limits, API changes, provider outages, GitHub enforcement, Google enforcement, or loss of account access. Keep recovery access to the GitHub, Google, OpenAI, ElevenLabs, and Drive accounts.
