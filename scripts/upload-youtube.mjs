@@ -52,8 +52,11 @@ const validateMetadata = (metadata) => {
   if (typeof metadata.description !== "string" || metadata.description.length > 5000) {
     throw new Error("YouTube description must be at most 5000 characters.");
   }
-  if (!Array.isArray(metadata.tags) || metadata.tags.some((tag) => typeof tag !== "string" || tag.length > 500)) {
+  if (!Array.isArray(metadata.tags) || metadata.tags.some((tag) => typeof tag !== "string" || tag.length > 100)) {
     throw new Error("YouTube tags are invalid.");
+  }
+  if (metadata.tags.join(",").length > 500) {
+    throw new Error("The combined YouTube tags exceed 500 characters.");
   }
   if (typeof metadata.categoryId !== "string" || !/^\d+$/.test(metadata.categoryId)) {
     throw new Error("YouTube categoryId is invalid.");
@@ -66,7 +69,7 @@ const validateMetadata = (metadata) => {
     throw new Error("YouTube publishAt must be at least five minutes in the future.");
   }
   if (typeof metadata.madeForKids !== "boolean") throw new Error("YouTube madeForKids must be boolean.");
-  if (!['youtube', 'creativeCommon'].includes(metadata.license)) throw new Error("YouTube license is invalid.");
+  if (!["youtube", "creativeCommon"].includes(metadata.license)) throw new Error("YouTube license is invalid.");
   return metadata;
 };
 
@@ -130,23 +133,84 @@ const initializeUpload = async ({ accessToken, metadata, videoSize }) => {
   return location;
 };
 
-const uploadVideo = async ({ accessToken, uploadUrl, videoPath, videoSize }) => {
+const nextOffsetFromRange = (value) => {
+  if (!value) return 0;
+  const match = /^bytes=0-(\d+)$/.exec(value.trim());
+  if (!match) throw new Error(`YouTube returned an invalid upload range: ${value}`);
+  return Number(match[1]) + 1;
+};
+
+const queryUploadStatus = async ({ accessToken, uploadUrl, videoSize }) => {
   const response = await fetch(uploadUrl, {
     method: "PUT",
     headers: {
       Authorization: `Bearer ${accessToken}`,
-      "Content-Type": "video/mp4",
-      "Content-Length": String(videoSize),
+      "Content-Length": "0",
+      "Content-Range": `bytes */${videoSize}`,
     },
-    body: createReadStream(videoPath),
-    duplex: "half",
-    signal: AbortSignal.timeout(45 * 60_000),
+    signal: AbortSignal.timeout(180_000),
   });
   const payload = await safeJson(response);
-  if (!response.ok || typeof payload.id !== "string") {
-    throw new Error(`YouTube media upload failed with HTTP ${response.status}: ${JSON.stringify(payload).slice(0, 1000)}`);
+  if (response.ok && typeof payload.id === "string") {
+    return { completedVideoId: payload.id };
   }
-  return payload.id;
+  if (response.status === 308) {
+    return { nextOffset: nextOffsetFromRange(response.headers.get("range")) };
+  }
+  if (response.status === 404 || response.status === 410) {
+    throw new Error(
+      "The YouTube resumable session expired before completion. The job was stopped rather than creating a second upload that might duplicate the video.",
+    );
+  }
+  throw new Error(`YouTube upload status query failed with HTTP ${response.status}: ${JSON.stringify(payload).slice(0, 1000)}`);
+};
+
+const uploadVideo = async ({ accessToken, uploadUrl, videoPath, videoSize }) => {
+  let offset = 0;
+  let lastError = null;
+
+  for (let attempt = 1; attempt <= 6; attempt += 1) {
+    if (offset >= videoSize) {
+      const status = await queryUploadStatus({ accessToken, uploadUrl, videoSize });
+      if (status.completedVideoId) return status.completedVideoId;
+      offset = status.nextOffset ?? offset;
+    }
+
+    try {
+      const response = await fetch(uploadUrl, {
+        method: "PUT",
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          "Content-Type": "video/mp4",
+          "Content-Length": String(videoSize - offset),
+          "Content-Range": `bytes ${offset}-${videoSize - 1}/${videoSize}`,
+        },
+        body: createReadStream(videoPath, { start: offset }),
+        duplex: "half",
+        signal: AbortSignal.timeout(45 * 60_000),
+      });
+      const payload = await safeJson(response);
+      if (response.ok && typeof payload.id === "string") return payload.id;
+      if (response.status === 308) {
+        offset = nextOffsetFromRange(response.headers.get("range"));
+        continue;
+      }
+      if (response.status < 500 && response.status !== 429) {
+        throw new Error(`YouTube media upload failed with HTTP ${response.status}: ${JSON.stringify(payload).slice(0, 1000)}`);
+      }
+      lastError = new Error(`YouTube media upload returned transient HTTP ${response.status}.`);
+    } catch (error) {
+      lastError = error;
+    }
+
+    if (attempt >= 6) break;
+    await sleep(Math.min(30_000, 2_000 * 2 ** (attempt - 1)));
+    const status = await queryUploadStatus({ accessToken, uploadUrl, videoSize });
+    if (status.completedVideoId) return status.completedVideoId;
+    offset = status.nextOffset ?? offset;
+  }
+
+  throw lastError ?? new Error("YouTube resumable upload did not complete.");
 };
 
 const pollProcessing = async ({ accessToken, videoId }) => {
@@ -197,23 +261,8 @@ const main = async () => {
     refreshToken: requireSecret("YOUTUBE_REFRESH_TOKEN"),
   };
   const accessToken = await refreshAccessToken(credentials);
-
-  let videoId = null;
-  let lastError = null;
-  for (let attempt = 1; attempt <= 3; attempt += 1) {
-    try {
-      const uploadUrl = await initializeUpload({ accessToken, metadata, videoSize: stat.size });
-      videoId = await uploadVideo({ accessToken, uploadUrl, videoPath, videoSize: stat.size });
-      break;
-    } catch (error) {
-      lastError = error;
-      if (attempt < 3) {
-        console.warn(`YouTube upload attempt ${attempt} failed; starting a fresh resumable session.`);
-        await sleep(5_000 * attempt);
-      }
-    }
-  }
-  if (!videoId) throw lastError ?? new Error("YouTube upload failed.");
+  const uploadUrl = await initializeUpload({ accessToken, metadata, videoSize: stat.size });
+  const videoId = await uploadVideo({ accessToken, uploadUrl, videoPath, videoSize: stat.size });
 
   const video = await pollProcessing({ accessToken, videoId });
   const result = {
