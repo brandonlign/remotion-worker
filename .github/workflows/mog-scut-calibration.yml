@@ -1,9 +1,7 @@
 name: Mog SCUT calibration
 
 on:
-  push:
-    branches:
-      - agent/mog-scut-calibration
+  pull_request:
     paths:
       - scripts/calibrate_mog_scut.py
       - .github/workflows/mog-scut-calibration.yml
