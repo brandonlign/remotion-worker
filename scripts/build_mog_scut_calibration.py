@@ -4,8 +4,9 @@ import hashlib
 import json
 import os
 from pathlib import Path
-import subprocess
 import urllib.request
+
+import numpy as np
 
 MODEL_URL = (
     "https://raw.githubusercontent.com/gustavz/AttractiveNet/"
@@ -19,13 +20,14 @@ TEST_URL = (
     "https://raw.githubusercontent.com/HCIILAB/SCUT-FBP5500-Database-Release/"
     "master/data/1/test_1.txt"
 )
-EXPECTED_MODEL_SHA = "34284d986d8175d4e122cc94fb6138bab9269178"
+SOURCE_MODEL_BLOB_SHA = "34284d986d8175d4e122cc94fb6138bab9269178"
 
 ROOT = Path(__file__).resolve().parents[1]
 BUILD = ROOT / "build" / "mog-scut"
 DOWNLOADS = ROOT / "build" / "downloads"
 MODEL_H5 = DOWNLOADS / "attractiveNet_mnv2.h5"
-TFJS_DIR = BUILD / "model"
+MODEL_DIR = BUILD / "model"
+MODEL_ONNX = MODEL_DIR / "attractiveness.onnx"
 
 
 def download(url: str, destination: Path) -> None:
@@ -91,9 +93,74 @@ def percentile_summary(values: list[float]) -> dict[str, float]:
     }
 
 
+def convert_and_validate_model() -> dict[str, object]:
+    os.environ.setdefault("TF_CPP_MIN_LOG_LEVEL", "2")
+    import onnx  # pylint: disable=import-outside-toplevel
+    import onnxruntime as ort  # pylint: disable=import-outside-toplevel
+    import tensorflow as tf  # pylint: disable=import-outside-toplevel
+    import tf2onnx  # pylint: disable=import-outside-toplevel
+
+    model = tf.keras.models.load_model(MODEL_H5, compile=False)
+    input_shape = [dimension if dimension is not None else None for dimension in model.input_shape]
+    output_shape = [dimension if dimension is not None else None for dimension in model.output_shape]
+    if input_shape != [None, 350, 350, 3]:
+        raise RuntimeError(f"Unexpected AttractiveNet input shape: {input_shape}")
+    if output_shape not in ([None, 1], [None]):
+        raise RuntimeError(f"Unexpected AttractiveNet output shape: {output_shape}")
+
+    MODEL_DIR.mkdir(parents=True, exist_ok=True)
+    input_name = model.inputs[0].name.split(":", maxsplit=1)[0]
+    signature = (tf.TensorSpec(model.inputs[0].shape, tf.float32, name=input_name),)
+    tf2onnx.convert.from_keras(
+        model,
+        input_signature=signature,
+        opset=13,
+        output_path=str(MODEL_ONNX),
+    )
+
+    onnx_model = onnx.load(MODEL_ONNX)
+    onnx.checker.check_model(onnx_model)
+    session = ort.InferenceSession(
+        str(MODEL_ONNX),
+        providers=["CPUExecutionProvider"],
+    )
+    session_input = session.get_inputs()[0]
+    session_output = session.get_outputs()[0]
+
+    # Deterministic parity check. The browser will use the same NHWC float32 input.
+    test_input = np.linspace(
+        0.0,
+        1.0,
+        num=350 * 350 * 3,
+        dtype=np.float32,
+    ).reshape(1, 350, 350, 3)
+    keras_prediction = np.asarray(model.predict(test_input, verbose=0)).reshape(-1)
+    onnx_prediction = np.asarray(
+        session.run([session_output.name], {session_input.name: test_input})[0]
+    ).reshape(-1)
+    max_absolute_difference = float(np.max(np.abs(keras_prediction - onnx_prediction)))
+    if max_absolute_difference > 1e-4:
+        raise RuntimeError(
+            "ONNX conversion parity check failed: "
+            f"maximum absolute difference {max_absolute_difference}"
+        )
+
+    return {
+        "inputShape": input_shape,
+        "outputShape": output_shape,
+        "onnxInputName": session_input.name,
+        "onnxOutputName": session_output.name,
+        "parity": {
+            "kerasPrediction": float(keras_prediction[0]),
+            "onnxPrediction": float(onnx_prediction[0]),
+            "maxAbsoluteDifference": max_absolute_difference,
+        },
+    }
+
+
 def main() -> None:
     BUILD.mkdir(parents=True, exist_ok=True)
-    TFJS_DIR.mkdir(parents=True, exist_ok=True)
+    MODEL_DIR.mkdir(parents=True, exist_ok=True)
 
     train_path = DOWNLOADS / "train_1.txt"
     test_path = DOWNLOADS / "test_1.txt"
@@ -105,30 +172,7 @@ def main() -> None:
     if model_size < 20_000_000:
         raise RuntimeError(f"Model download is unexpectedly small: {model_size} bytes")
 
-    # Validate that Keras can deserialize the checkpoint before conversion and capture
-    # the actual input/output shape so the browser implementation cannot guess it.
-    os.environ.setdefault("TF_CPP_MIN_LOG_LEVEL", "2")
-    from tensorflow import keras  # pylint: disable=import-outside-toplevel
-
-    model = keras.models.load_model(MODEL_H5, compile=False)
-    input_shape = [dimension if dimension is not None else None for dimension in model.input_shape]
-    output_shape = [dimension if dimension is not None else None for dimension in model.output_shape]
-
-    subprocess.run(
-        [
-            "tensorflowjs_converter",
-            "--input_format=keras",
-            "--output_format=tfjs_layers_model",
-            "--quantization_bytes=2",
-            str(MODEL_H5),
-            str(TFJS_DIR),
-        ],
-        check=True,
-    )
-
-    model_json = TFJS_DIR / "model.json"
-    if not model_json.exists():
-        raise RuntimeError("TensorFlow.js conversion did not create model.json")
+    conversion = convert_and_validate_model()
 
     labels = parse_labels(train_path, test_path)
     ordered_scores = sorted(labels.values())
@@ -164,16 +208,18 @@ def main() -> None:
 
     metadata = {
         "benchmark": "SCUT-FBP5500",
+        "runtimeFormat": "ONNX",
         "model": "AttractiveNet MobileNetV2 regression checkpoint",
         "modelSource": "gustavz/AttractiveNet",
         "originalModelBytes": model_size,
         "originalModelSha256": sha256(MODEL_H5),
-        "sourceBlobSha": EXPECTED_MODEL_SHA,
-        "inputShape": input_shape,
-        "outputShape": output_shape,
+        "sourceBlobSha": SOURCE_MODEL_BLOB_SHA,
+        "convertedModelBytes": MODEL_ONNX.stat().st_size,
+        **conversion,
         "preprocessing": {
             "resize": [350, 350],
             "pixelScale": "RGB values divided by 255",
+            "layout": "NHWC",
         },
         "reportedEvaluation": {
             "mae": 0.211983,
@@ -211,13 +257,21 @@ def main() -> None:
         encoding="utf-8",
     )
 
-    print(json.dumps({
-        "input_shape": input_shape,
-        "output_shape": output_shape,
-        "model_files": len(list(TFJS_DIR.glob("*"))),
-        "artifact_bytes": sum(path.stat().st_size for path in BUILD.rglob("*") if path.is_file()),
-        "rating_summary": distribution["summary"],
-    }, indent=2))
+    print(
+        json.dumps(
+            {
+                "input_shape": conversion["inputShape"],
+                "output_shape": conversion["outputShape"],
+                "onnx_model_bytes": MODEL_ONNX.stat().st_size,
+                "artifact_bytes": sum(
+                    path.stat().st_size for path in BUILD.rglob("*") if path.is_file()
+                ),
+                "rating_summary": distribution["summary"],
+                "parity": conversion["parity"],
+            },
+            indent=2,
+        )
+    )
 
 
 if __name__ == "__main__":
