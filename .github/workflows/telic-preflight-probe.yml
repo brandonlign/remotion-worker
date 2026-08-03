@@ -1,0 +1,52 @@
+name: Telic preflight probe
+
+on:
+  pull_request:
+    paths:
+      - .github/workflows/telic-preflight-probe.yml
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      SOURCE_REPOSITORY: ${{ secrets.SOURCE_REPOSITORY }}
+      SOURCE_REPO_TOKEN: ${{ secrets.SOURCE_REPO_TOKEN }}
+      SOURCE_REPO_WRITE_TOKEN: ${{ secrets.SOURCE_REPO_WRITE_TOKEN }}
+      WORKER_TOKEN: ${{ secrets.WORKER_TOKEN }}
+      RCLONE_CONFIG_B64: ${{ secrets.RCLONE_CONFIG_B64 }}
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      YOUTUBE_CLIENT_ID: ${{ secrets.YOUTUBE_CLIENT_ID }}
+      YOUTUBE_CLIENT_SECRET: ${{ secrets.YOUTUBE_CLIENT_SECRET }}
+      YOUTUBE_REFRESH_TOKEN: ${{ secrets.YOUTUBE_REFRESH_TOKEN }}
+      AUTOPUBLISH_ENABLED: ${{ vars.AUTOPUBLISH_ENABLED }}
+      AUTOPILOT_KILL_SWITCH: ${{ vars.AUTOPILOT_KILL_SWITCH }}
+    steps:
+      - name: Report configuration names only
+        shell: bash
+        run: |
+          set -euo pipefail
+          missing=()
+          for name in SOURCE_REPOSITORY SOURCE_REPO_TOKEN SOURCE_REPO_WRITE_TOKEN WORKER_TOKEN RCLONE_CONFIG_B64 OPENAI_API_KEY YOUTUBE_CLIENT_ID YOUTUBE_CLIENT_SECRET YOUTUBE_REFRESH_TOKEN; do
+            if [ -z "${!name:-}" ]; then
+              missing+=("$name")
+            fi
+          done
+          if [ "${SOURCE_REPOSITORY:-}" != "brandonlign/remotion-video" ]; then
+            missing+=("SOURCE_REPOSITORY_expected_brandonlign/remotion-video")
+          fi
+          if [ "${AUTOPUBLISH_ENABLED:-0}" != "1" ]; then
+            missing+=("AUTOPUBLISH_ENABLED_expected_1")
+          fi
+          if [ "${AUTOPILOT_KILL_SWITCH:-0}" = "1" ]; then
+            missing+=("AUTOPILOT_KILL_SWITCH_expected_not_1")
+          fi
+          if [ "${#missing[@]}" -gt 0 ]; then
+            echo "Telic activation blockers (names only):"
+            printf ' - %s\n' "${missing[@]}"
+            exit 1
+          fi
+          echo "All required secret and variable names are present."
