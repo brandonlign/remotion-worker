@@ -78,6 +78,7 @@ jobs:
         run: |
           node --check scripts/autopilot/generate-job.mjs
           node --check scripts/autopilot/prepare-render.mjs
+          node --check scripts/autopilot/generate-openai-voiceover.mjs
           node --check scripts/autopilot/dispatch-render.mjs
           node --check scripts/autopilot/wait-for-worker.mjs
           node --check scripts/autopilot/record-result.mjs
