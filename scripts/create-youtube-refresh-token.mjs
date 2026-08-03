@@ -11,7 +11,10 @@ import { spawn } from "node:child_process";
 const AUTH_ENDPOINT = "https://accounts.google.com/o/oauth2/v2/auth";
 const TOKEN_ENDPOINT = "https://oauth2.googleapis.com/token";
 const REDIRECT_URI = process.env.YOUTUBE_REDIRECT_URI?.trim() || "http://localhost:8080/oauth2callback";
-const SCOPE = "https://www.googleapis.com/auth/youtube.upload";
+const SCOPE = [
+  "https://www.googleapis.com/auth/youtube.upload",
+  "https://www.googleapis.com/auth/youtube.readonly",
+].join(" ");
 
 const required = (name) => {
   const value = process.env[name]?.trim();

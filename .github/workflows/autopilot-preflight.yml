@@ -170,7 +170,7 @@ jobs:
           rm -f "$config" "$RUNNER_TEMP/drive-folders.json"
           echo "Google Drive credential, scope, and destination folders passed."
 
-      - name: Validate YouTube OAuth refresh and upload scope
+      - name: Validate YouTube OAuth refresh and idempotency scopes
         shell: bash
         run: |
           set -euo pipefail
@@ -195,15 +195,18 @@ jobs:
           );
           const info = await infoResponse.json().catch(() => ({}));
           const scopes = new Set(String(info.scope || "").split(/\s+/).filter(Boolean));
-          const allowed = [
-            "https://www.googleapis.com/auth/youtube.upload",
+          const broad = [
             "https://www.googleapis.com/auth/youtube",
             "https://www.googleapis.com/auth/youtube.force-ssl",
-          ];
-          if (!infoResponse.ok || !allowed.some((scope) => scopes.has(scope))) {
-            throw new Error("The refreshed Google token does not include a YouTube upload-capable scope.");
+          ].some((scope) => scopes.has(scope));
+          const canUpload = broad || scopes.has("https://www.googleapis.com/auth/youtube.upload");
+          const canRead = broad || scopes.has("https://www.googleapis.com/auth/youtube.readonly");
+          if (!infoResponse.ok || !canUpload || !canRead) {
+            throw new Error(
+              "The refreshed Google token must include both YouTube upload and read access so retries can detect an existing private job upload.",
+            );
           }
-          console.log("YouTube OAuth refresh and upload scope passed.");
+          console.log("YouTube OAuth refresh, upload scope, and read scope passed.");
           NODE
 
       - name: Remove private checkout
