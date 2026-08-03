@@ -55,6 +55,7 @@ jobs:
         env:
           JOB_ID: ${{ steps.request.outputs.job_id }}
           SOURCE_SHA: ${{ steps.request.outputs.source_sha }}
+          RCLONE_CONFIG_B64: ${{ secrets.RCLONE_CONFIG_B64 }}
           ELEVENLABS_API_KEYS_JSON: ${{ secrets.ELEVENLABS_API_KEYS_JSON }}
           ELEVENLABS_API_KEY: ${{ secrets.ELEVENLABS_API_KEY }}
         run: |
@@ -93,7 +94,8 @@ jobs:
             >"$RUNNER_TEMP/private-upload.log" 2>&1; then
             echo "Private Drive upload completed."
           else
-            echo "Private Drive upload failed. Check the configured Drive secret."
+            cat "$RUNNER_TEMP/private-upload.log" >&2
+            echo "Private Drive upload failed."
             exit 1
           fi
 
