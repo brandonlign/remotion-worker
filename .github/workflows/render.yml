@@ -75,15 +75,43 @@ jobs:
           printf '%s\n' "$code" > "$RUNNER_TEMP/render-result/exit-code.txt"
           echo "exit_code=$code" >> "$GITHUB_OUTPUT"
           if [ "$code" -eq 0 ]; then
-            echo "Private render completed; evaluating publication configuration."
+            echo "Private render completed; running the autonomous final quality gate."
           else
             echo "Private render failed; preserving the private diagnostic package."
           fi
           exit 0
 
+      - name: Run autonomous final quality gate
+        id: quality
+        if: always() && steps.render.outputs.exit_code == '0'
+        shell: bash
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          OPENAI_QC_MODEL: ${{ vars.OPENAI_QC_MODEL }}
+        run: |
+          set +e
+          node scripts/quality-gate.mjs \
+            "$RUNNER_TEMP/render-result" \
+            private-source/automation/current/job.json \
+            private-source/automation/config.json \
+            private-source/automation/prompts/telic-final-quality-gate.txt \
+            >"$RUNNER_TEMP/private-quality.log" 2>&1
+          code=$?
+          cp "$RUNNER_TEMP/private-quality.log" "$RUNNER_TEMP/render-result/private-quality.log"
+          echo "exit_code=$code" >> "$GITHUB_OUTPUT"
+          if [ "$code" -eq 0 ]; then
+            echo "The autonomous final quality gate passed."
+          else
+            echo "The autonomous final quality gate rejected the render; publication will be skipped."
+          fi
+          exit 0
+
       - name: Upload and schedule on YouTube
         id: publish
-        if: always() && steps.render.outputs.exit_code == '0'
+        if: >-
+          always() &&
+          steps.render.outputs.exit_code == '0' &&
+          steps.quality.outputs.exit_code == '0'
         shell: bash
         env:
           AUTOPUBLISH_ENABLED: ${{ vars.AUTOPUBLISH_ENABLED }}
@@ -102,7 +130,7 @@ jobs:
             completedAt: new Date().toISOString(),
           }, null, 2)}\n`, { mode: 0o600 });
           NODE
-            printf '%s\n' "YouTube publication is disabled; the private render remains a Drive candidate." \
+            printf '%s\n' "YouTube publication is disabled; the quality-approved private render remains a Drive candidate." \
               > "$RUNNER_TEMP/private-youtube.log"
             cp "$RUNNER_TEMP/private-youtube.log" "$RUNNER_TEMP/render-result/private-youtube.log"
             echo "exit_code=0" >> "$GITHUB_OUTPUT"
@@ -120,7 +148,7 @@ jobs:
           cp "$RUNNER_TEMP/private-youtube.log" "$RUNNER_TEMP/render-result/private-youtube.log"
           echo "exit_code=$code" >> "$GITHUB_OUTPUT"
           if [ "$code" -eq 0 ]; then
-            echo "YouTube accepted, processed, and scheduled the private render."
+            echo "YouTube accepted, processed, and scheduled the quality-approved private render."
           else
             echo "YouTube publication failed; preserving private diagnostics."
           fi
@@ -163,16 +191,21 @@ jobs:
         if: >-
           always() &&
           steps.render.outputs.exit_code == '0' &&
+          steps.quality.outputs.exit_code == '0' &&
           steps.publish.outputs.exit_code == '0' &&
           steps.drive.outcome == 'success'
         env:
           GH_TOKEN: ${{ github.token }}
         run: gh pr close "${{ github.event.pull_request.number }}" --delete-branch
 
-      - name: Fail workflow when rendering or enabled publication failed
+      - name: Fail workflow when rendering, quality, or enabled publication failed
         if: >-
           always() &&
-          (steps.render.outputs.exit_code != '0' || steps.publish.outputs.exit_code != '0')
+          (
+            steps.render.outputs.exit_code != '0' ||
+            steps.quality.outputs.exit_code != '0' ||
+            steps.publish.outputs.exit_code != '0'
+          )
         run: |
-          echo "The private render or enabled YouTube publication failed. Detailed diagnostics were uploaded to Drive."
+          echo "The private render, autonomous quality gate, or enabled YouTube publication failed. Detailed diagnostics were uploaded to Drive."
           exit 1
