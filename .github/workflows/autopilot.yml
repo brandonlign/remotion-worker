@@ -1,0 +1,193 @@
+name: Telic autopilot
+
+on:
+  schedule:
+    - cron: "17 13 * * *"
+  workflow_dispatch:
+    inputs:
+      force:
+        description: Ignore the configured day, slot, and enabled flag for one run
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: telic-autopilot
+  cancel-in-progress: false
+
+jobs:
+  produce:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    env:
+      WORKER_REPOSITORY: brandonlign/remotion-worker
+      AUTOPILOT_KILL_SWITCH: ${{ vars.AUTOPILOT_KILL_SWITCH }}
+
+    steps:
+      - name: Check out worker
+        uses: actions/checkout@v4
+
+      - name: Check out private Telic source
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ secrets.SOURCE_REPOSITORY }}
+          ref: main
+          token: ${{ secrets.SOURCE_REPO_WRITE_TOKEN }}
+          path: private-source
+          persist-credentials: true
+          fetch-depth: 0
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: private-source/package-lock.json
+
+      - name: Generate researched Telic job privately
+        id: generate
+        working-directory: private-source
+        shell: bash
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          AUTOPILOT_FORCE: ${{ inputs.force && '1' || '0' }}
+        run: |
+          set +e
+          node scripts/autopilot/generate-job.mjs >"$RUNNER_TEMP/private-generation.log" 2>&1
+          code=$?
+          if [ "$code" -ne 0 ]; then
+            echo "Private Telic generation failed. Draft details were intentionally withheld from this public log."
+            rm -f "$RUNNER_TEMP/private-generation.log"
+            exit "$code"
+          fi
+          rm -f "$RUNNER_TEMP/private-generation.log"
+          echo "Private Telic generation completed."
+
+      - name: Install private dependencies
+        if: steps.generate.outputs.generated == 'true'
+        working-directory: private-source
+        run: npm ci --no-audit --no-fund
+
+      - name: Validate private production source
+        if: steps.generate.outputs.generated == 'true'
+        working-directory: private-source
+        run: |
+          node --check scripts/autopilot/generate-job.mjs
+          node --check scripts/autopilot/prepare-render.mjs
+          node --check scripts/autopilot/dispatch-render.mjs
+          node --check scripts/autopilot/wait-for-worker.mjs
+          node --check scripts/autopilot/record-result.mjs
+          npm run lint
+
+      - name: Commit private production job
+        if: steps.generate.outputs.generated == 'true'
+        id: source
+        working-directory: private-source
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "telic-autopilot[bot]"
+          git config user.email "telic-autopilot[bot]@users.noreply.github.com"
+          git add automation/current automation/state.json
+          git commit -m "Produce ${{ steps.generate.outputs.job_id }}"
+          git push origin HEAD:main
+          echo "source_sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+      - name: Dispatch render attempt 1
+        if: steps.generate.outputs.generated == 'true'
+        id: dispatch1
+        working-directory: private-source
+        env:
+          WORKER_TOKEN: ${{ secrets.WORKER_TOKEN }}
+          SOURCE_SHA: ${{ steps.source.outputs.source_sha }}
+          JOB_ID: ${{ steps.generate.outputs.job_id }}
+          REVISION: 1
+        run: node scripts/autopilot/dispatch-render.mjs
+
+      - name: Wait for render attempt 1
+        if: steps.generate.outputs.generated == 'true'
+        id: wait1
+        continue-on-error: true
+        working-directory: private-source
+        env:
+          WORKER_TOKEN: ${{ secrets.WORKER_TOKEN }}
+          WORKER_HEAD_SHA: ${{ steps.dispatch1.outputs.worker_head_sha }}
+          WORKER_TIMEOUT_MINUTES: 70
+        run: node scripts/autopilot/wait-for-worker.mjs
+
+      - name: Dispatch render attempt 2
+        if: steps.generate.outputs.generated == 'true' && steps.wait1.outcome == 'failure'
+        id: dispatch2
+        working-directory: private-source
+        env:
+          WORKER_TOKEN: ${{ secrets.WORKER_TOKEN }}
+          SOURCE_SHA: ${{ steps.source.outputs.source_sha }}
+          JOB_ID: ${{ steps.generate.outputs.job_id }}
+          REVISION: 2
+        run: node scripts/autopilot/dispatch-render.mjs
+
+      - name: Wait for render attempt 2
+        if: steps.generate.outputs.generated == 'true' && steps.wait1.outcome == 'failure'
+        id: wait2
+        continue-on-error: true
+        working-directory: private-source
+        env:
+          WORKER_TOKEN: ${{ secrets.WORKER_TOKEN }}
+          WORKER_HEAD_SHA: ${{ steps.dispatch2.outputs.worker_head_sha }}
+          WORKER_TIMEOUT_MINUTES: 70
+        run: node scripts/autopilot/wait-for-worker.mjs
+
+      - name: Record successful publication
+        if: >-
+          steps.generate.outputs.generated == 'true' &&
+          (steps.wait1.outcome == 'success' || steps.wait2.outcome == 'success')
+        working-directory: private-source
+        env:
+          JOB_ID: ${{ steps.generate.outputs.job_id }}
+          JOB_RESULT: published
+          SOURCE_SHA: ${{ steps.source.outputs.source_sha }}
+          ATTEMPT: ${{ steps.wait1.outcome == 'success' && '1' || '2' }}
+        run: node scripts/autopilot/record-result.mjs
+
+      - name: Record exhausted publication failure
+        if: >-
+          steps.generate.outputs.generated == 'true' &&
+          steps.wait1.outcome == 'failure' &&
+          steps.wait2.outcome == 'failure'
+        working-directory: private-source
+        env:
+          JOB_ID: ${{ steps.generate.outputs.job_id }}
+          JOB_RESULT: failed
+          SOURCE_SHA: ${{ steps.source.outputs.source_sha }}
+          ATTEMPT: 2
+        run: node scripts/autopilot/record-result.mjs
+
+      - name: Persist final private job state
+        if: steps.generate.outputs.generated == 'true' && always()
+        working-directory: private-source
+        shell: bash
+        run: |
+          set -euo pipefail
+          if git diff --quiet -- automation/state.json; then
+            exit 0
+          fi
+          git config user.name "telic-autopilot[bot]"
+          git config user.email "telic-autopilot[bot]@users.noreply.github.com"
+          git add automation/state.json
+          git commit -m "Record ${{ steps.generate.outputs.job_id }} result"
+          git push origin HEAD:main
+
+      - name: Remove private source checkout
+        if: always()
+        run: rm -rf private-source
+
+      - name: Fail after exhausted retries
+        if: >-
+          steps.generate.outputs.generated == 'true' &&
+          steps.wait1.outcome == 'failure' &&
+          steps.wait2.outcome == 'failure'
+        run: exit 1

@@ -7,7 +7,8 @@ on:
       - jobs/request.json
 
 permissions:
-  contents: read
+  contents: write
+  pull-requests: write
 
 concurrency:
   group: remotion-render-${{ github.event.pull_request.number }}
@@ -19,7 +20,7 @@ jobs:
       github.event.pull_request.head.repo.full_name == github.repository &&
       startsWith(github.head_ref, 'render/')
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 90
 
     steps:
       - name: Check out worker
@@ -70,9 +71,54 @@ jobs:
           printf '%s\n' "$code" > "$RUNNER_TEMP/render-result/exit-code.txt"
           echo "exit_code=$code" >> "$GITHUB_OUTPUT"
           if [ "$code" -eq 0 ]; then
-            echo "Private render completed; uploading results."
+            echo "Private render completed; evaluating publication configuration."
           else
-            echo "Private render failed; uploading the private diagnostic package."
+            echo "Private render failed; preserving the private diagnostic package."
+          fi
+          exit 0
+
+      - name: Upload and schedule on YouTube
+        id: publish
+        if: always() && steps.render.outputs.exit_code == '0'
+        shell: bash
+        env:
+          AUTOPUBLISH_ENABLED: ${{ vars.AUTOPUBLISH_ENABLED }}
+          YOUTUBE_CLIENT_ID: ${{ secrets.YOUTUBE_CLIENT_ID }}
+          YOUTUBE_CLIENT_SECRET: ${{ secrets.YOUTUBE_CLIENT_SECRET }}
+          YOUTUBE_REFRESH_TOKEN: ${{ secrets.YOUTUBE_REFRESH_TOKEN }}
+        run: |
+          set +e
+          if [ "${AUTOPUBLISH_ENABLED:-0}" != "1" ]; then
+            node - "$RUNNER_TEMP/render-result/youtube-status.json" "${{ steps.request.outputs.job_id }}" <<'NODE'
+          const fs = require("node:fs");
+          const [outputPath, jobId] = process.argv.slice(2);
+          fs.writeFileSync(outputPath, `${JSON.stringify({
+            status: "disabled",
+            jobId,
+            completedAt: new Date().toISOString(),
+          }, null, 2)}\n`, { mode: 0o600 });
+          NODE
+            printf '%s\n' "YouTube publication is disabled; the private render remains a Drive candidate." \
+              > "$RUNNER_TEMP/private-youtube.log"
+            cp "$RUNNER_TEMP/private-youtube.log" "$RUNNER_TEMP/render-result/private-youtube.log"
+            echo "exit_code=0" >> "$GITHUB_OUTPUT"
+            echo "YouTube publication is disabled; continuing with private Drive delivery."
+            exit 0
+          fi
+
+          output_name="$(node -e 'const fs=require("fs"); const value=JSON.parse(fs.readFileSync(process.argv[1],"utf8")); process.stdout.write(value.outputName);' "$RUNNER_TEMP/render-result/status.json")"
+          node scripts/upload-youtube.mjs \
+            "$RUNNER_TEMP/render-result/${output_name}.mp4" \
+            private-source/automation/current/youtube.json \
+            "$RUNNER_TEMP/render-result/youtube-status.json" \
+            >"$RUNNER_TEMP/private-youtube.log" 2>&1
+          code=$?
+          cp "$RUNNER_TEMP/private-youtube.log" "$RUNNER_TEMP/render-result/private-youtube.log"
+          echo "exit_code=$code" >> "$GITHUB_OUTPUT"
+          if [ "$code" -eq 0 ]; then
+            echo "YouTube accepted, processed, and scheduled the private render."
+          else
+            echo "YouTube publication failed; preserving private diagnostics."
           fi
           exit 0
 
@@ -80,7 +126,19 @@ jobs:
         if: always()
         run: rm -rf private-source
 
+      - name: Refresh private checksums
+        if: always()
+        shell: bash
+        run: |
+          if [ -d "$RUNNER_TEMP/render-result" ]; then
+            find "$RUNNER_TEMP/render-result" -type f ! -name checksums.txt -print0 \
+              | sort -z \
+              | xargs -0 sha256sum \
+              > "$RUNNER_TEMP/render-result/checksums.txt"
+          fi
+
       - name: Upload privately to Google Drive
+        id: drive
         if: always()
         shell: bash
         env:
@@ -97,8 +155,20 @@ jobs:
             exit 1
           fi
 
-      - name: Fail workflow when rendering failed
-        if: always() && steps.render.outputs.exit_code != '0'
+      - name: Close successful temporary render request
+        if: >-
+          always() &&
+          steps.render.outputs.exit_code == '0' &&
+          steps.publish.outputs.exit_code == '0' &&
+          steps.drive.outcome == 'success'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh pr close "${{ github.event.pull_request.number }}" --delete-branch
+
+      - name: Fail workflow when rendering or enabled publication failed
+        if: >-
+          always() &&
+          (steps.render.outputs.exit_code != '0' || steps.publish.outputs.exit_code != '0')
         run: |
-          echo "The private render failed. Detailed diagnostics were uploaded to Drive."
+          echo "The private render or enabled YouTube publication failed. Detailed diagnostics were uploaded to Drive."
           exit 1

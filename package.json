@@ -4,6 +4,6 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "check": "bash -n scripts/run-render.sh scripts/create-review-assets.sh scripts/upload-drive.sh && node scripts/validate-job.mjs jobs/render-request.example.json && node scripts/validate-source-config.mjs examples/remotion-worker.json /tmp/remotion-worker-config.json"
+    "check": "bash -n scripts/run-render.sh scripts/create-review-assets.sh scripts/upload-drive.sh && node --check scripts/create-youtube-refresh-token.mjs scripts/upload-youtube.mjs && node scripts/validate-job.mjs jobs/render-request.example.json && node scripts/validate-source-config.mjs examples/remotion-worker.json /tmp/remotion-worker-config.json"
   }
 }
