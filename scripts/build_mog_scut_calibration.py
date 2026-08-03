@@ -101,16 +101,21 @@ def convert_and_validate_model() -> dict[str, object]:
     import tf2onnx  # pylint: disable=import-outside-toplevel
 
     model = tf.keras.models.load_model(MODEL_H5, compile=False)
-    input_shape = [dimension if dimension is not None else None for dimension in model.input_shape]
+    source_input_shape = [
+        dimension if dimension is not None else None for dimension in model.input_shape
+    ]
+    concrete_input_shape = [None, 350, 350, 3]
     output_shape = [dimension if dimension is not None else None for dimension in model.output_shape]
-    if input_shape != [None, 350, 350, 3]:
-        raise RuntimeError(f"Unexpected AttractiveNet input shape: {input_shape}")
+    if len(source_input_shape) != 4 or source_input_shape[-1] != 3:
+        raise RuntimeError(f"Unexpected AttractiveNet input shape: {source_input_shape}")
     if output_shape not in ([None, 1], [None]):
         raise RuntimeError(f"Unexpected AttractiveNet output shape: {output_shape}")
 
     MODEL_DIR.mkdir(parents=True, exist_ok=True)
     input_name = model.inputs[0].name.split(":", maxsplit=1)[0]
-    signature = (tf.TensorSpec(model.inputs[0].shape, tf.float32, name=input_name),)
+    signature = (
+        tf.TensorSpec(concrete_input_shape, tf.float32, name=input_name),
+    )
     tf2onnx.convert.from_keras(
         model,
         input_signature=signature,
@@ -146,7 +151,8 @@ def convert_and_validate_model() -> dict[str, object]:
         )
 
     return {
-        "inputShape": input_shape,
+        "sourceInputShape": source_input_shape,
+        "inputShape": concrete_input_shape,
         "outputShape": output_shape,
         "onnxInputName": session_input.name,
         "onnxOutputName": session_output.name,
@@ -260,6 +266,7 @@ def main() -> None:
     print(
         json.dumps(
             {
+                "source_input_shape": conversion["sourceInputShape"],
                 "input_shape": conversion["inputShape"],
                 "output_shape": conversion["outputShape"],
                 "onnx_model_bytes": MODEL_ONNX.stat().st_size,
