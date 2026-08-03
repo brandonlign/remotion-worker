@@ -106,12 +106,42 @@ jobs:
           fi
           exit 0
 
+      - name: Refresh private checksums before delivery
+        if: always()
+        shell: bash
+        run: |
+          if [ -d "$RUNNER_TEMP/render-result" ]; then
+            find "$RUNNER_TEMP/render-result" -type f ! -name checksums.txt -print0 \
+              | sort -z \
+              | xargs -0 sha256sum \
+              > "$RUNNER_TEMP/render-result/checksums.txt"
+          fi
+
+      - name: Deliver render and diagnostics privately to Google Drive
+        id: drive
+        if: always()
+        shell: bash
+        env:
+          RCLONE_CONFIG_B64: ${{ secrets.RCLONE_CONFIG_B64 }}
+          JOB_ID: ${{ steps.request.outputs.job_id }}
+        run: |
+          if bash scripts/upload-drive.sh \
+            "$RUNNER_TEMP/render-result" \
+            "$JOB_ID" \
+            >"$RUNNER_TEMP/private-upload.log" 2>&1; then
+            echo "Private Drive delivery completed before publication."
+          else
+            echo "Private Drive delivery failed; YouTube publication will not run."
+            exit 1
+          fi
+
       - name: Upload and schedule on YouTube
         id: publish
         if: >-
           always() &&
           steps.render.outputs.exit_code == '0' &&
-          steps.quality.outputs.exit_code == '0'
+          steps.quality.outputs.exit_code == '0' &&
+          steps.drive.outcome == 'success'
         shell: bash
         env:
           AUTOPUBLISH_ENABLED: ${{ vars.AUTOPUBLISH_ENABLED }}
@@ -130,11 +160,11 @@ jobs:
             completedAt: new Date().toISOString(),
           }, null, 2)}\n`, { mode: 0o600 });
           NODE
-            printf '%s\n' "YouTube publication is disabled; the quality-approved private render remains a Drive candidate." \
+            printf '%s\n' "YouTube publication is disabled; this quality-approved unattended job cannot be marked complete." \
               > "$RUNNER_TEMP/private-youtube.log"
             cp "$RUNNER_TEMP/private-youtube.log" "$RUNNER_TEMP/render-result/private-youtube.log"
-            echo "exit_code=0" >> "$GITHUB_OUTPUT"
-            echo "YouTube publication is disabled; continuing with private Drive delivery."
+            echo "exit_code=78" >> "$GITHUB_OUTPUT"
+            echo "YouTube publication is disabled; preserving the quality-approved private render and failing the unattended job."
             exit 0
           fi
 
@@ -154,58 +184,63 @@ jobs:
           fi
           exit 0
 
-      - name: Remove private source checkout
-        if: always()
-        run: rm -rf private-source
-
-      - name: Refresh private checksums
-        if: always()
+      - name: Refresh checksums after publication attempt
+        if: always() && steps.publish.outcome != 'skipped'
         shell: bash
         run: |
-          if [ -d "$RUNNER_TEMP/render-result" ]; then
-            find "$RUNNER_TEMP/render-result" -type f ! -name checksums.txt -print0 \
-              | sort -z \
-              | xargs -0 sha256sum \
-              > "$RUNNER_TEMP/render-result/checksums.txt"
-          fi
+          find "$RUNNER_TEMP/render-result" -type f ! -name checksums.txt -print0 \
+            | sort -z \
+            | xargs -0 sha256sum \
+            > "$RUNNER_TEMP/render-result/checksums.txt"
 
-      - name: Upload privately to Google Drive
-        id: drive
-        if: always()
+      - name: Sync private publication status to Drive
+        if: always() && steps.publish.outcome != 'skipped'
+        continue-on-error: true
         shell: bash
         env:
           RCLONE_CONFIG_B64: ${{ secrets.RCLONE_CONFIG_B64 }}
           JOB_ID: ${{ steps.request.outputs.job_id }}
         run: |
-          if bash scripts/upload-drive.sh \
-            "$RUNNER_TEMP/render-result" \
-            "$JOB_ID" \
-            >"$RUNNER_TEMP/private-upload.log" 2>&1; then
-            echo "Private Drive upload completed."
-          else
-            echo "Private Drive upload failed. Check the configured Drive secret."
-            exit 1
-          fi
+          code=1
+          for attempt in 1 2 3; do
+            if bash scripts/upload-drive.sh \
+              "$RUNNER_TEMP/render-result" \
+              "$JOB_ID" \
+              >"$RUNNER_TEMP/private-status-upload.log" 2>&1; then
+              echo "Private publication status was synchronized to Drive."
+              exit 0
+            fi
+            if [ "$attempt" -lt 3 ]; then
+              sleep $((attempt * 20))
+            fi
+          done
+          echo "The render was already delivered before publication, but the post-publication status sync failed."
+          exit "$code"
+
+      - name: Remove private source checkout
+        if: always()
+        run: rm -rf private-source
 
       - name: Close successful temporary render request
         if: >-
           always() &&
           steps.render.outputs.exit_code == '0' &&
           steps.quality.outputs.exit_code == '0' &&
-          steps.publish.outputs.exit_code == '0' &&
-          steps.drive.outcome == 'success'
+          steps.drive.outcome == 'success' &&
+          steps.publish.outputs.exit_code == '0'
         env:
           GH_TOKEN: ${{ github.token }}
         run: gh pr close "${{ github.event.pull_request.number }}" --delete-branch
 
-      - name: Fail workflow when rendering, quality, or enabled publication failed
+      - name: Fail workflow when rendering, quality, Drive delivery, or publication failed
         if: >-
           always() &&
           (
             steps.render.outputs.exit_code != '0' ||
             steps.quality.outputs.exit_code != '0' ||
+            steps.drive.outcome != 'success' ||
             steps.publish.outputs.exit_code != '0'
           )
         run: |
-          echo "The private render, autonomous quality gate, or enabled YouTube publication failed. Detailed diagnostics were uploaded to Drive."
+          echo "The private render, autonomous quality gate, required Drive delivery, or required YouTube publication failed. Private diagnostics were retained when possible."
           exit 1
