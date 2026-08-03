@@ -40,7 +40,9 @@ jobs:
           gdown --fuzzy "https://drive.google.com/file/d/1w0TorBfTIqbquQVd6k3h_77ypnrvfGwf/view" -O scut-fbp5500.zip
           python - <<'PY'
           from pathlib import Path
+          import os
           import zipfile
+
           archive = Path("scut-fbp5500.zip")
           print(f"Downloaded {archive.stat().st_size:,} bytes")
           if not zipfile.is_zipfile(archive):
@@ -48,12 +50,41 @@ jobs:
           with zipfile.ZipFile(archive) as zipped:
               zipped.extractall("scut-dataset")
               print(f"Extracted {len(zipped.infolist())} entries")
+
+          expected = set()
+          for fold in range(1, 6):
+              for split in ("train", "test"):
+                  path = Path("official-scut") / "data" / str(fold) / f"{split}_{fold}.txt"
+                  for line in path.read_text(encoding="utf-8").splitlines():
+                      if line.strip():
+                          expected.add(line.split()[0])
+
+          source_by_stem = {}
+          for extension in ("*.jpg", "*.jpeg", "*.png", "*.JPG", "*.JPEG", "*.PNG"):
+              for path in Path("scut-dataset").rglob(extension):
+                  source_by_stem.setdefault(path.stem.lower(), path.resolve())
+
+          normalized = Path("scut-normalized")
+          normalized.mkdir()
+          missing = []
+          for name in sorted(expected):
+              source = source_by_stem.get(Path(name).stem.lower())
+              if source is None:
+                  missing.append(name)
+                  continue
+              os.symlink(source, normalized / name)
+
+          print(f"Normalized {len(expected) - len(missing)} of {len(expected)} labeled images")
+          print("Extracted image examples:", [str(path) for path in list(source_by_stem.values())[:8]])
+          if missing:
+              print("Missing examples:", missing[:20])
+              raise SystemExit(f"Unable to resolve {len(missing)} labeled images")
           PY
 
       - name: Calibrate and cross-validate benchmark model
         run: |
           python scripts/calibrate_mog_scut.py \
-            --dataset-root scut-dataset \
+            --dataset-root scut-normalized \
             --official-repo official-scut \
             --output artifacts/mog-scut-calibration.json
 
