@@ -50,6 +50,7 @@ jobs:
 
       - name: Generate researched Telic job privately
         id: generate
+        continue-on-error: true
         working-directory: private-source
         shell: bash
         env:
@@ -57,34 +58,120 @@ jobs:
           AUTOPILOT_FORCE: ${{ inputs.force && '1' || '0' }}
         run: |
           set +e
-          node scripts/autopilot/generate-job.mjs >"$RUNNER_TEMP/private-generation.log" 2>&1
-          code=$?
-          if [ "$code" -ne 0 ]; then
-            echo "Private Telic generation failed. Draft details were intentionally withheld from this public log."
-            rm -f "$RUNNER_TEMP/private-generation.log"
-            exit "$code"
-          fi
-          rm -f "$RUNNER_TEMP/private-generation.log"
-          echo "Private Telic generation completed."
+          : > "$RUNNER_TEMP/private-generation.log"
+          code=1
+          for attempt in 1 2 3; do
+            printf 'Generation attempt %s started.\n' "$attempt" >> "$RUNNER_TEMP/private-generation.log"
+            node scripts/autopilot/generate-job.mjs >>"$RUNNER_TEMP/private-generation.log" 2>&1
+            code=$?
+            if [ "$code" -eq 0 ]; then
+              echo "Private Telic generation completed."
+              exit 0
+            fi
+            if [ "$attempt" -lt 3 ]; then
+              sleep $((attempt * 20))
+            fi
+          done
+          echo "Private Telic generation failed after retries. Details were withheld from this public log."
+          exit "$code"
 
       - name: Install private dependencies
+        id: install
         if: steps.generate.outputs.generated == 'true'
+        continue-on-error: true
         working-directory: private-source
-        run: npm ci --no-audit --no-fund
+        shell: bash
+        run: |
+          set +e
+          : > "$RUNNER_TEMP/private-install.log"
+          code=1
+          for attempt in 1 2; do
+            npm ci --no-audit --no-fund >>"$RUNNER_TEMP/private-install.log" 2>&1
+            code=$?
+            if [ "$code" -eq 0 ]; then
+              echo "Private dependencies installed."
+              exit 0
+            fi
+            if [ "$attempt" -lt 2 ]; then
+              sleep 20
+            fi
+          done
+          echo "Private dependency installation failed. Details were withheld from this public log."
+          exit "$code"
 
       - name: Validate private production source
-        if: steps.generate.outputs.generated == 'true'
+        id: validate
+        if: steps.generate.outputs.generated == 'true' && steps.install.outcome == 'success'
+        continue-on-error: true
         working-directory: private-source
+        shell: bash
         run: |
-          node --check scripts/autopilot/generate-job.mjs
-          node --check scripts/autopilot/prepare-render.mjs
-          node --check scripts/autopilot/dispatch-render.mjs
-          node --check scripts/autopilot/wait-for-worker.mjs
-          node --check scripts/autopilot/record-result.mjs
-          npm run lint
+          set +e
+          {
+            node --check scripts/autopilot/generate-job.mjs &&
+            node --check scripts/autopilot/prepare-render.mjs &&
+            node --check scripts/autopilot/dispatch-render.mjs &&
+            node --check scripts/autopilot/wait-for-worker.mjs &&
+            node --check scripts/autopilot/record-result.mjs &&
+            npm run lint
+          } >"$RUNNER_TEMP/private-validation.log" 2>&1
+          code=$?
+          if [ "$code" -eq 0 ]; then
+            echo "Private production source validated."
+          else
+            echo "Private production validation failed. Details were withheld from this public log."
+          fi
+          exit "$code"
+
+      - name: Upload private control-plane diagnostics
+        if: >-
+          always() &&
+          (steps.generate.outcome == 'failure' ||
+           steps.install.outcome == 'failure' ||
+           steps.validate.outcome == 'failure')
+        shell: bash
+        env:
+          RCLONE_CONFIG_B64: ${{ secrets.RCLONE_CONFIG_B64 }}
+          JOB_ID: telic-control-${{ github.run_id }}
+        run: |
+          set +e
+          diagnostic_dir="$RUNNER_TEMP/control-diagnostics"
+          mkdir -p "$diagnostic_dir"
+          for file in private-generation.log private-install.log private-validation.log; do
+            if [ -f "$RUNNER_TEMP/$file" ]; then
+              cp "$RUNNER_TEMP/$file" "$diagnostic_dir/$file"
+            fi
+          done
+          node - "$diagnostic_dir/status.json" "$JOB_ID" <<'NODE'
+          const fs = require("node:fs");
+          const [outputPath, jobId] = process.argv.slice(2);
+          fs.writeFileSync(outputPath, `${JSON.stringify({
+            status: "control-plane-failed",
+            jobId,
+            completedAt: new Date().toISOString(),
+          }, null, 2)}\n`, { mode: 0o600 });
+          NODE
+          if bash scripts/upload-drive.sh "$diagnostic_dir" "$JOB_ID" >/dev/null 2>&1; then
+            echo "Private control-plane diagnostics were uploaded to Drive."
+          else
+            echo "Private control-plane diagnostics could not be uploaded."
+          fi
+          exit 0
+
+      - name: Stop after private control-plane failure
+        if: >-
+          always() &&
+          (steps.generate.outcome == 'failure' ||
+           steps.install.outcome == 'failure' ||
+           steps.validate.outcome == 'failure')
+        run: exit 1
+
+      - name: Remove successful private setup logs
+        if: steps.generate.outputs.generated == 'true' && steps.validate.outcome == 'success'
+        run: rm -f "$RUNNER_TEMP/private-generation.log" "$RUNNER_TEMP/private-install.log" "$RUNNER_TEMP/private-validation.log"
 
       - name: Commit private production job
-        if: steps.generate.outputs.generated == 'true'
+        if: steps.generate.outputs.generated == 'true' && steps.validate.outcome == 'success'
         id: source
         working-directory: private-source
         shell: bash
@@ -93,12 +180,13 @@ jobs:
           git config user.name "telic-autopilot[bot]"
           git config user.email "telic-autopilot[bot]@users.noreply.github.com"
           git add automation/current automation/state.json
-          git commit -m "Produce ${{ steps.generate.outputs.job_id }}"
-          git push origin HEAD:main
+          git commit -m "Produce ${{ steps.generate.outputs.job_id }}" >/dev/null
+          git push origin HEAD:main >/dev/null
           echo "source_sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          echo "Private production job committed."
 
       - name: Dispatch render attempt 1
-        if: steps.generate.outputs.generated == 'true'
+        if: steps.generate.outputs.generated == 'true' && steps.validate.outcome == 'success'
         id: dispatch1
         working-directory: private-source
         env:
@@ -109,7 +197,7 @@ jobs:
         run: node scripts/autopilot/dispatch-render.mjs
 
       - name: Wait for render attempt 1
-        if: steps.generate.outputs.generated == 'true'
+        if: steps.generate.outputs.generated == 'true' && steps.validate.outcome == 'success'
         id: wait1
         continue-on-error: true
         working-directory: private-source
@@ -178,8 +266,9 @@ jobs:
           git config user.name "telic-autopilot[bot]"
           git config user.email "telic-autopilot[bot]@users.noreply.github.com"
           git add automation/state.json
-          git commit -m "Record ${{ steps.generate.outputs.job_id }} result"
-          git push origin HEAD:main
+          git commit -m "Record ${{ steps.generate.outputs.job_id }} result" >/dev/null
+          git push origin HEAD:main >/dev/null
+          echo "Private job state persisted."
 
       - name: Remove private source checkout
         if: always()
