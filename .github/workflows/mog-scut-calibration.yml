@@ -64,13 +64,21 @@ jobs:
               for path in Path("scut-dataset").rglob(extension):
                   source_by_stem.setdefault(path.stem.lower(), path.resolve())
 
+          legacy_prefix = {
+              "fty": "af",
+              "mty": "am",
+              "ftw": "cf",
+              "mtw": "cm",
+          }
           normalized = Path("scut-normalized")
           normalized.mkdir()
           missing = []
           for name in sorted(expected):
-              source = source_by_stem.get(Path(name).stem.lower())
+              legacy_stem = Path(name).stem.lower()
+              modern_stem = legacy_prefix.get(legacy_stem[:3], legacy_stem[:3]) + legacy_stem[3:]
+              source = source_by_stem.get(modern_stem)
               if source is None:
-                  missing.append(name)
+                  missing.append(f"{name}->{modern_stem}")
                   continue
               os.symlink(source, normalized / name)
 
