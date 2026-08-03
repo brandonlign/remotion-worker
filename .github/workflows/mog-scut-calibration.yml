@@ -83,7 +83,6 @@ jobs:
               os.symlink(source, normalized / name)
 
           print(f"Normalized {len(expected) - len(missing)} of {len(expected)} labeled images")
-          print("Extracted image examples:", [str(path) for path in list(source_by_stem.values())[:8]])
           if missing:
               print("Missing examples:", missing[:20])
               raise SystemExit(f"Unable to resolve {len(missing)} labeled images")
@@ -96,11 +95,57 @@ jobs:
             --official-repo official-scut \
             --output artifacts/mog-scut-calibration.json
 
+      - name: Split model into browser-sized files
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import json
+
+          source = Path("artifacts/mog-scut-calibration.json")
+          data = json.loads(source.read_text(encoding="utf-8"))
+          output = Path("artifacts/mog-scut-model")
+          output.mkdir(parents=True, exist_ok=True)
+
+          model = data["model"]
+          calibration = data["calibration"]
+          metadata = {
+              "schemaVersion": data["schemaVersion"],
+              "modelVersion": data["modelVersion"],
+              "dataset": data["dataset"],
+              "percentileDefinition": data["percentileDefinition"],
+              "enabled": data["enabled"],
+              "gate": data["gate"],
+              "samples": data["samples"],
+              "features": data["features"],
+              "validation": data["validation"],
+              "model": {
+                  "type": model["type"],
+                  "alpha": model["alpha"],
+                  "intercept": model["intercept"],
+                  "predictionClamp": model["predictionClamp"],
+              },
+              "calibration": {
+                  "finalTrainingPredictionRange": calibration["finalTrainingPredictionRange"],
+                  "uncertaintyRatingRmse": calibration["uncertaintyRatingRmse"],
+              },
+          }
+          files = {
+              "metadata.json": metadata,
+              "mean.json": model["mean"],
+              "scale.json": model["scale"],
+              "coefficients.json": model["coefficients"],
+              "oof-prediction-cdf.json": calibration["oofPredictionCdf"],
+          }
+          for name, value in files.items():
+              (output / name).write_text(json.dumps(value, separators=(",", ":")), encoding="utf-8")
+              print(name, (output / name).stat().st_size)
+          PY
+
       - name: Publish calibration artifact to branch
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add artifacts/mog-scut-calibration.json artifacts/mog-scut-calibration.md
+          git add artifacts/mog-scut-calibration.json artifacts/mog-scut-calibration.md artifacts/mog-scut-model
           if git diff --cached --quiet; then
             echo "Calibration artifact unchanged"
           else
@@ -114,4 +159,5 @@ jobs:
           path: |
             artifacts/mog-scut-calibration.json
             artifacts/mog-scut-calibration.md
+            artifacts/mog-scut-model
           if-no-files-found: error
