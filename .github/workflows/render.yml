@@ -102,11 +102,11 @@ jobs:
             completedAt: new Date().toISOString(),
           }, null, 2)}\n`, { mode: 0o600 });
           NODE
-            printf '%s\n' "YouTube publication is disabled; the private render remains a Drive candidate." \
+            printf '%s\n' "YouTube publication is disabled; this unattended job cannot be marked complete." \
               > "$RUNNER_TEMP/private-youtube.log"
             cp "$RUNNER_TEMP/private-youtube.log" "$RUNNER_TEMP/render-result/private-youtube.log"
-            echo "exit_code=0" >> "$GITHUB_OUTPUT"
-            echo "YouTube publication is disabled; continuing with private Drive delivery."
+            echo "exit_code=78" >> "$GITHUB_OUTPUT"
+            echo "YouTube publication is disabled; preserving the private render and failing the unattended job."
             exit 0
           fi
 
@@ -169,10 +169,10 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: gh pr close "${{ github.event.pull_request.number }}" --delete-branch
 
-      - name: Fail workflow when rendering or enabled publication failed
+      - name: Fail workflow when rendering or publication failed
         if: >-
           always() &&
           (steps.render.outputs.exit_code != '0' || steps.publish.outputs.exit_code != '0')
         run: |
-          echo "The private render or enabled YouTube publication failed. Detailed diagnostics were uploaded to Drive."
+          echo "The private render or required YouTube publication failed. Detailed diagnostics were uploaded to Drive."
           exit 1
