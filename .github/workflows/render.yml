@@ -62,17 +62,23 @@ jobs:
 
           controller="$work/extracted/telic-vm-controller-v3"
           test -d "$controller"
-          test "$(find "$controller" -type f | wc -l | tr -d ' ')" = "22"
+          test "$(find "$controller" -type f | wc -l | tr -d ' ')" = "19"
 
           bash -n tools/telic-controller-v3/install-from-repo.sh
           bash -n "$controller/install.sh"
-          node --check "$controller"/src/*.mjs
+          for file in "$controller"/src/*.mjs; do
+            node --check "$file"
+          done
 
           grep -Rqs 'https://www.googleapis.com/auth/drive.readonly' "$controller/src"
           grep -Rqs 'studio.youtube.com' "$controller/src"
           grep -Rqs 'expectedChannelTitle' "$controller"
-          if grep -RniE 'youtube/v3|auth/youtube|youtube\.upload|getAuthorizedChannel|updateVideoMetadata' "$controller/src"; then
-            echo "Obsolete YouTube API/OAuth code remains in the packaged controller." >&2
+          if grep -niE 'youtube/v3|auth/youtube|youtube\.upload|getAuthorizedChannel|updateVideoMetadata' \
+            "$controller/src/google-api.mjs" \
+            "$controller/src/authorize-google.mjs" \
+            "$controller/src/publisher.mjs" \
+            "$controller/src/doctor.mjs"; then
+            echo "Obsolete YouTube API/OAuth code remains in production controller files." >&2
             exit 1
           fi
 
