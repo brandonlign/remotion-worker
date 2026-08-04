@@ -1,4 +1,4 @@
-name: Recover Telic controller package
+name: Validate Telic controller Studio publishing
 
 on:
   pull_request:
@@ -10,11 +10,11 @@ permissions:
   contents: read
 
 concurrency:
-  group: telic-controller-recovery-${{ github.event.pull_request.number }}
+  group: telic-controller-validation-${{ github.event.pull_request.number }}
   cancel-in-progress: true
 
 jobs:
-  recover-controller:
+  validate-controller:
     if: >-
       github.event.pull_request.head.repo.full_name == github.repository &&
       github.head_ref == 'render/telic-controller-recovery'
@@ -22,10 +22,10 @@ jobs:
     timeout-minutes: 20
 
     steps:
-      - name: Check out worker marker
+      - name: Check out worker trigger
         uses: actions/checkout@v4
 
-      - name: Check out private controller history
+      - name: Check out private controller branch
         uses: actions/checkout@v4
         with:
           repository: brandonlign/remotion-video
@@ -33,71 +33,52 @@ jobs:
           token: ${{ secrets.SOURCE_REPO_TOKEN }}
           path: private-source
           persist-credentials: false
-          fetch-depth: 0
+          fetch-depth: 1
 
-      - name: Recover newest coherent controller archive
+      - name: Verify, install, and test packaged controller
         working-directory: private-source
         shell: bash
         run: |
           set -euo pipefail
 
-          work="$RUNNER_TEMP/telic-controller-recovery"
-          artifact="$RUNNER_TEMP/telic-controller-artifact"
-          rm -rf "$work" "$artifact"
-          mkdir -p "$work" "$artifact/source"
+          work="$RUNNER_TEMP/telic-controller-validation"
+          rm -rf "$work"
+          mkdir -p "$work/extracted"
 
-          while IFS= read -r commit; do
-            [[ -n "$commit" ]] || continue
-            complete=1
-            for path in \
-              tools/telic-controller-v3/install-from-repo.sh \
-              tools/telic-controller-v3/archive/chunk-00.b64 \
-              tools/telic-controller-v3/archive/chunk-01.b64 \
-              tools/telic-controller-v3/archive/chunk-02.b64 \
-              tools/telic-controller-v3/archive/chunk-03.b64; do
-              if ! git cat-file -e "$commit:$path" 2>/dev/null; then
-                complete=0
-                break
-              fi
-            done
-            [[ "$complete" == 1 ]] || continue
+          archive_b64="$work/controller.b64"
+          archive="$work/controller.tar.gz"
+          : > "$archive_b64"
+          for chunk in 00 01 02 03; do
+            cat "tools/telic-controller-v3/archive/chunk-$chunk.b64" >> "$archive_b64"
+          done
+          base64 -d "$archive_b64" > "$archive"
 
-            candidate_b64="$work/$commit.b64"
-            candidate_archive="$work/$commit.tar.gz"
-            : > "$candidate_b64"
-            for chunk in 00 01 02 03; do
-              git show "$commit:tools/telic-controller-v3/archive/chunk-$chunk.b64" >> "$candidate_b64"
-            done
-            base64 -d "$candidate_b64" > "$candidate_archive" 2>/dev/null || continue
+          expected="$(sed -n 's/^EXPECTED_SHA256="\([0-9a-f]\{64\}\)"$/\1/p' tools/telic-controller-v3/install-from-repo.sh | head -n1)"
+          actual="$(sha256sum "$archive" | awk '{print $1}')"
+          test "$expected" = "449d849d38ae658b3c3eda85540c4324d2464bb1df97dc4042824c32f59758d4"
+          test "$actual" = "$expected"
+          tar -tzf "$archive" >/dev/null
+          tar -xzf "$archive" -C "$work/extracted"
 
-            expected="$(git show "$commit:tools/telic-controller-v3/install-from-repo.sh" \
-              | sed -n 's/^EXPECTED_SHA256="\([0-9a-f]\{64\}\)"$/\1/p' \
-              | head -n1)"
-            actual="$(sha256sum "$candidate_archive" | awk '{print $1}')"
-            [[ -n "$expected" && "$expected" == "$actual" ]] || continue
-            tar -tzf "$candidate_archive" >/dev/null 2>&1 || continue
+          controller="$work/extracted/telic-vm-controller-v3"
+          test -d "$controller"
+          test "$(find "$controller" -type f | wc -l | tr -d ' ')" = "22"
 
-            cp "$candidate_archive" "$artifact/controller.tar.gz"
-            tar -xzf "$candidate_archive" -C "$artifact/source"
-            cat > "$artifact/recovery.json" <<EOF
-          {
-            "commit": "$commit",
-            "sha256": "$actual"
-          }
-          EOF
-            echo "TELIC_RECOVERY_COMMIT=$commit"
-            echo "TELIC_RECOVERY_SHA256=$actual"
-            exit 0
-          done < <(git rev-list --all -- tools/telic-controller-v3)
+          bash -n tools/telic-controller-v3/install-from-repo.sh
+          bash -n "$controller/install.sh"
+          node --check "$controller"/src/*.mjs
 
-          echo "No coherent historical controller package was found." >&2
-          git log --oneline --all -- tools/telic-controller-v3 >&2
-          exit 1
+          grep -Rqs 'https://www.googleapis.com/auth/drive.readonly' "$controller/src"
+          grep -Rqs 'studio.youtube.com' "$controller/src"
+          grep -Rqs 'expectedChannelTitle' "$controller"
+          if grep -RniE 'youtube/v3|auth/youtube|youtube\.upload|getAuthorizedChannel|updateVideoMetadata' "$controller/src"; then
+            echo "Obsolete YouTube API/OAuth code remains in the packaged controller." >&2
+            exit 1
+          fi
 
-      - name: Upload recovered controller privately
-        uses: actions/upload-artifact@v4
-        with:
-          name: telic-controller-recovered-source
-          path: ${{ runner.temp }}/telic-controller-artifact
-          if-no-files-found: error
-          retention-days: 1
+          cd "$controller"
+          npm install --no-audit --no-fund
+          npm test
+
+          echo "Validated controller archive SHA-256: $actual"
+          echo "Studio-only publisher package passed clean install and tests."
