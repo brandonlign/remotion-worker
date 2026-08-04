@@ -89,6 +89,12 @@ fs.writeFileSync(outputFile, `${JSON.stringify({
 }, null, 2)}\n`);
 NODE
 
+node "$WORKER_ROOT/scripts/create-controller-handoff.mjs" \
+  "$OUTPUT_DIR" \
+  "$SOURCE_DIR/automation/current/youtube.json" \
+  "$JOB_ID" \
+  "$SOURCE_SHA"
+
 find "$OUTPUT_DIR" -type f ! -name checksums.txt -print0 \
   | sort -z \
   | xargs -0 sha256sum \
