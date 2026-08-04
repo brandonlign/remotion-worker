@@ -30,12 +30,12 @@ jobs:
         with:
           repository: brandonlign/remotion-video
           ref: agent/telic-controller-v3
-          token: ${{ secrets.SOURCE_REPO_WRITE_TOKEN || secrets.SOURCE_REPO_TOKEN }}
+          token: ${{ secrets.SOURCE_REPO_TOKEN }}
           path: private-source
-          persist-credentials: true
+          persist-credentials: false
           fetch-depth: 0
 
-      - name: Recover newest coherent controller archive
+      - name: Identify newest coherent controller archive
         working-directory: private-source
         shell: bash
         run: |
@@ -44,11 +44,7 @@ jobs:
 
           work="$RUNNER_TEMP/telic-controller-recovery"
           rm -rf "$work"
-          mkdir -p "$work/extracted"
-
-          found_commit=""
-          found_sha=""
-          found_archive=""
+          mkdir -p "$work"
 
           while IFS= read -r commit; do
             [[ -n "$commit" ]] || continue
@@ -72,54 +68,23 @@ jobs:
             for chunk in 00 01 02 03; do
               git show "$commit:tools/telic-controller-v3/archive/chunk-$chunk.b64" >> "$candidate_b64"
             done
-            if ! base64 -d "$candidate_b64" > "$candidate_archive" 2>/dev/null; then
-              continue
-            fi
+            base64 -d "$candidate_b64" > "$candidate_archive" 2>/dev/null || continue
 
             expected="$(git show "$commit:tools/telic-controller-v3/install-from-repo.sh" \
               | sed -n 's/^EXPECTED_SHA256="\([0-9a-f]\{64\}\)"$/\1/p' \
               | head -n1)"
             actual="$(sha256sum "$candidate_archive" | awk '{print $1}')"
-            if [[ -z "$expected" || "$expected" != "$actual" ]]; then
-              continue
-            fi
-            if ! tar -tzf "$candidate_archive" >/dev/null 2>&1; then
-              continue
-            fi
+            [[ -n "$expected" && "$expected" == "$actual" ]] || continue
+            tar -tzf "$candidate_archive" >/dev/null 2>&1 || continue
 
-            found_commit="$commit"
-            found_sha="$actual"
-            found_archive="$candidate_archive"
-            break
+            echo "TELIC_RECOVERY_COMMIT=$commit"
+            echo "TELIC_RECOVERY_SHA256=$actual"
+            echo "TELIC_RECOVERY_FILES_BEGIN"
+            tar -tzf "$candidate_archive"
+            echo "TELIC_RECOVERY_FILES_END"
+            exit 0
           done < <(git rev-list --all -- tools/telic-controller-v3)
 
-          if [[ -z "$found_commit" ]]; then
-            echo "No coherent historical controller package was found." >&2
-            git log --oneline --all -- tools/telic-controller-v3 >&2
-            exit 1
-          fi
-
-          tar -xzf "$found_archive" -C "$work/extracted"
-          source_root="$(find "$work/extracted" -mindepth 1 -maxdepth 1 -type d | head -n1)"
-          [[ -n "$source_root" && -d "$source_root" ]]
-
-          git checkout -B agent/telic-controller-v3-source-recovery "$found_commit"
-          recovery_dir="tools/telic-controller-v3/source-recovery"
-          rm -rf "$recovery_dir"
-          mkdir -p "$recovery_dir"
-          cp -a "$source_root"/. "$recovery_dir"/
-          cat > "$recovery_dir/RECOVERY.md" <<EOF
-          # Controller source recovery
-
-          Recovered from commit: $found_commit
-
-          Verified archive SHA-256: $found_sha
-          EOF
-
-          git config user.name "telic-controller-recovery[bot]"
-          git config user.email "telic-controller-recovery[bot]@users.noreply.github.com"
-          git add "$recovery_dir"
-          git commit -m "Recover coherent Telic controller source"
-          git push --force origin HEAD:agent/telic-controller-v3-source-recovery
-
-          echo "Recovered controller source from $found_commit ($found_sha)."
+          echo "No coherent historical controller package was found." >&2
+          git log --oneline --all -- tools/telic-controller-v3 >&2
+          exit 1
