@@ -62,6 +62,7 @@ jobs:
           for override in \
             src/oauth-callback.mjs \
             src/authorize-google.mjs \
+            src/recover-now.mjs \
             prompts/source-stage.txt \
             prompts/render-stage.txt \
             prompts/recovery-stage.txt; do
@@ -72,6 +73,7 @@ jobs:
           bash -n tools/telic-controller-v3/install-from-repo.sh
           node --check "$controller/src/oauth-callback.mjs"
           node --check "$controller/src/authorize-google.mjs"
+          node --check "$controller/src/recover-now.mjs"
           grep -q 'context.route(routePattern, routeHandler)' "$controller/src/authorize-google.mjs"
           grep -q 'https://www.googleapis.com/auth/drive.readonly' "$controller/src/authorize-google.mjs"
           if grep -q 'auth/youtube' "$controller/src/authorize-google.mjs"; then
@@ -87,6 +89,8 @@ jobs:
           grep -q 'YouTube publication is disabled or delegated' "$controller/prompts/render-stage.txt"
           grep -q 'connector-safe' "$controller/prompts/recovery-stage.txt"
           grep -q 'A previous response may have stopped' "$controller/prompts/recovery-stage.txt"
+          grep -q 'Submitted immediate connector-safe recovery' "$controller/src/recover-now.mjs"
+          grep -q 'telic-controller-recover' tools/telic-controller-v3/install-from-repo.sh
           if grep -q 'Run the relevant lint, type, build, and local render checks' "$controller/prompts/source-stage.txt"; then
             echo "Legacy impossible local-checkout instruction remains in source prompt." >&2
             exit 1
