@@ -35,15 +35,16 @@ jobs:
           persist-credentials: false
           fetch-depth: 0
 
-      - name: Identify newest coherent controller archive
+      - name: Recover newest coherent controller archive
         working-directory: private-source
         shell: bash
         run: |
           set -euo pipefail
 
           work="$RUNNER_TEMP/telic-controller-recovery"
-          rm -rf "$work"
-          mkdir -p "$work"
+          artifact="$RUNNER_TEMP/telic-controller-artifact"
+          rm -rf "$work" "$artifact"
+          mkdir -p "$work" "$artifact/source"
 
           while IFS= read -r commit; do
             [[ -n "$commit" ]] || continue
@@ -76,14 +77,27 @@ jobs:
             [[ -n "$expected" && "$expected" == "$actual" ]] || continue
             tar -tzf "$candidate_archive" >/dev/null 2>&1 || continue
 
+            cp "$candidate_archive" "$artifact/controller.tar.gz"
+            tar -xzf "$candidate_archive" -C "$artifact/source"
+            cat > "$artifact/recovery.json" <<EOF
+          {
+            "commit": "$commit",
+            "sha256": "$actual"
+          }
+          EOF
             echo "TELIC_RECOVERY_COMMIT=$commit"
             echo "TELIC_RECOVERY_SHA256=$actual"
-            echo "TELIC_RECOVERY_FILES_BEGIN"
-            tar -tzf "$candidate_archive"
-            echo "TELIC_RECOVERY_FILES_END"
             exit 0
           done < <(git rev-list --all -- tools/telic-controller-v3)
 
           echo "No coherent historical controller package was found." >&2
           git log --oneline --all -- tools/telic-controller-v3 >&2
           exit 1
+
+      - name: Upload recovered controller privately
+        uses: actions/upload-artifact@v4
+        with:
+          name: telic-controller-recovered-source
+          path: ${{ runner.temp }}/telic-controller-artifact
+          if-no-files-found: error
+          retention-days: 1
