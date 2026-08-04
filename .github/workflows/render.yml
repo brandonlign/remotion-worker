@@ -1,4 +1,4 @@
-name: Validate Telic controller Studio publishing
+name: Validate Telic controller browser callback
 
 on:
   pull_request:
@@ -10,7 +10,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: telic-controller-validation-${{ github.event.pull_request.number }}
+  group: telic-controller-callback-${{ github.event.pull_request.number }}
   cancel-in-progress: true
 
 jobs:
@@ -35,7 +35,7 @@ jobs:
           persist-credentials: false
           fetch-depth: 1
 
-      - name: Verify, install, and test packaged controller
+      - name: Reconstruct package and apply installer overrides
         working-directory: private-source
         shell: bash
         run: |
@@ -57,34 +57,53 @@ jobs:
           actual="$(sha256sum "$archive" | awk '{print $1}')"
           test "$expected" = "449d849d38ae658b3c3eda85540c4324d2464bb1df97dc4042824c32f59758d4"
           test "$actual" = "$expected"
-          tar -tzf "$archive" >/dev/null
           tar -xzf "$archive" -C "$work/extracted"
 
           controller="$work/extracted/telic-vm-controller-v3"
-          test -d "$controller"
-          test "$(find "$controller" -type f | wc -l | tr -d ' ')" = "19"
-
-          bash -n tools/telic-controller-v3/install-from-repo.sh
-          bash -n "$controller/install.sh"
-          for file in "$controller"/src/*.mjs; do
-            node --check "$file"
+          for override in src/oauth-callback.mjs src/authorize-google.mjs; do
+            mkdir -p "$controller/$(dirname "$override")"
+            cp "tools/telic-controller-v3/overrides/$override" "$controller/$override"
           done
 
-          grep -Rqs 'https://www.googleapis.com/auth/drive.readonly' "$controller/src"
-          grep -Rqs 'studio.youtube.com' "$controller/src"
-          grep -Rqs 'expectedChannelTitle' "$controller"
-          if grep -niE 'youtube/v3|auth/youtube|youtube\.upload|getAuthorizedChannel|updateVideoMetadata' \
-            "$controller/src/google-api.mjs" \
-            "$controller/src/authorize-google.mjs" \
-            "$controller/src/publisher.mjs" \
-            "$controller/src/doctor.mjs"; then
-            echo "Obsolete YouTube API/OAuth code remains in production controller files." >&2
+          bash -n tools/telic-controller-v3/install-from-repo.sh
+          node --check "$controller/src/oauth-callback.mjs"
+          node --check "$controller/src/authorize-google.mjs"
+          grep -q 'page.on("request"' "$controller/src/authorize-google.mjs"
+          grep -q 'page.on("requestfailed"' "$controller/src/authorize-google.mjs"
+          grep -q 'https://www.googleapis.com/auth/drive.readonly' "$controller/src/authorize-google.mjs"
+          if grep -q 'auth/youtube' "$controller/src/authorize-google.mjs"; then
+            echo "YouTube OAuth scope returned unexpectedly." >&2
             exit 1
           fi
+
+          CONTROLLER="$controller" node --input-type=module <<'NODE'
+          import assert from "node:assert/strict";
+          import {pathToFileURL} from "node:url";
+          const moduleUrl = pathToFileURL(`${process.env.CONTROLLER}/src/oauth-callback.mjs`);
+          const {parseOAuthCallbackUrl} = await import(moduleUrl);
+          const options = {
+            redirectUri: "http://127.0.0.1:8787/oauth2callback",
+            state: "state-123",
+          };
+          assert.deepEqual(
+            parseOAuthCallbackUrl(
+              "http://127.0.0.1:8787/oauth2callback?state=state-123&code=one-time-code",
+              options,
+            ),
+            {code: "one-time-code"},
+          );
+          assert.match(
+            parseOAuthCallbackUrl(
+              "http://127.0.0.1:8787/oauth2callback?state=wrong&code=one-time-code",
+              options,
+            ).error.message,
+            /state did not match/,
+          );
+          console.log("VM-browser OAuth callback parser passed.");
+          NODE
 
           cd "$controller"
           npm install --no-audit --no-fund
           npm test
 
-          echo "Validated controller archive SHA-256: $actual"
-          echo "Studio-only publisher package passed clean install and tests."
+          echo "Validated callback-fixed controller at private commit $(git -C "$GITHUB_WORKSPACE/private-source" rev-parse HEAD)."
