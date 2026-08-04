@@ -40,7 +40,6 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          git fetch --all --prune
 
           work="$RUNNER_TEMP/telic-controller-recovery"
           rm -rf "$work"
