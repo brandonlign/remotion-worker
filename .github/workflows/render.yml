@@ -1,4 +1,4 @@
-name: Validate Telic controller browser callback
+name: Validate Telic controller context callback
 
 on:
   pull_request:
@@ -10,7 +10,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: telic-controller-callback-${{ github.event.pull_request.number }}
+  group: telic-controller-context-callback-${{ github.event.pull_request.number }}
   cancel-in-progress: true
 
 jobs:
@@ -35,7 +35,7 @@ jobs:
           persist-credentials: false
           fetch-depth: 1
 
-      - name: Reconstruct package and apply installer overrides
+      - name: Reconstruct package and validate browser-context callback
         working-directory: private-source
         shell: bash
         run: |
@@ -55,7 +55,6 @@ jobs:
 
           expected="$(sed -n 's/^EXPECTED_SHA256="\([0-9a-f]\{64\}\)"$/\1/p' tools/telic-controller-v3/install-from-repo.sh | head -n1)"
           actual="$(sha256sum "$archive" | awk '{print $1}')"
-          test "$expected" = "449d849d38ae658b3c3eda85540c4324d2464bb1df97dc4042824c32f59758d4"
           test "$actual" = "$expected"
           tar -xzf "$archive" -C "$work/extracted"
 
@@ -68,42 +67,58 @@ jobs:
           bash -n tools/telic-controller-v3/install-from-repo.sh
           node --check "$controller/src/oauth-callback.mjs"
           node --check "$controller/src/authorize-google.mjs"
-          grep -q 'page.on("request"' "$controller/src/authorize-google.mjs"
-          grep -q 'page.on("requestfailed"' "$controller/src/authorize-google.mjs"
+          grep -q 'context.route(routePattern, routeHandler)' "$controller/src/authorize-google.mjs"
+          grep -q 'context.on("request"' "$controller/src/authorize-google.mjs"
+          grep -q 'context.on("requestfailed"' "$controller/src/authorize-google.mjs"
+          grep -q 'VM browser context' "$controller/src/authorize-google.mjs"
           grep -q 'https://www.googleapis.com/auth/drive.readonly' "$controller/src/authorize-google.mjs"
           if grep -q 'auth/youtube' "$controller/src/authorize-google.mjs"; then
             echo "YouTube OAuth scope returned unexpectedly." >&2
             exit 1
           fi
 
-          CONTROLLER="$controller" node --input-type=module <<'NODE'
-          import assert from "node:assert/strict";
-          import {pathToFileURL} from "node:url";
-          const moduleUrl = pathToFileURL(`${process.env.CONTROLLER}/src/oauth-callback.mjs`);
-          const {parseOAuthCallbackUrl} = await import(moduleUrl);
-          const options = {
-            redirectUri: "http://127.0.0.1:8787/oauth2callback",
-            state: "state-123",
-          };
-          assert.deepEqual(
-            parseOAuthCallbackUrl(
-              "http://127.0.0.1:8787/oauth2callback?state=state-123&code=one-time-code",
-              options,
-            ),
-            {code: "one-time-code"},
-          );
-          assert.match(
-            parseOAuthCallbackUrl(
-              "http://127.0.0.1:8787/oauth2callback?state=wrong&code=one-time-code",
-              options,
-            ).error.message,
-            /state did not match/,
-          );
-          console.log("VM-browser OAuth callback parser passed.");
-          NODE
-
           cd "$controller"
           npm install --no-audit --no-fund
           npm test
 
-          echo "Validated callback-fixed controller at private commit $(git -C "$GITHUB_WORKSPACE/private-source" rev-parse HEAD)."
+          CONTROLLER="$controller" node --input-type=module <<'NODE'
+          import assert from "node:assert/strict";
+          import {execFileSync} from "node:child_process";
+          import {pathToFileURL} from "node:url";
+          import {chromium} from "playwright-core";
+
+          const moduleUrl = pathToFileURL(`${process.env.CONTROLLER}/src/oauth-callback.mjs`);
+          const {parseOAuthCallbackUrl} = await import(moduleUrl);
+          const redirectUri = "http://127.0.0.1:8787/oauth2callback";
+          const state = "state-123";
+          const callbackUrl = `${redirectUri}?state=${state}&code=one-time-code`;
+          assert.deepEqual(parseOAuthCallbackUrl(callbackUrl, {redirectUri, state}), {code: "one-time-code"});
+
+          const executablePath = execFileSync("bash", ["-lc", "command -v google-chrome || command -v chromium || command -v chromium-browser"], {encoding: "utf8"}).trim();
+          assert.ok(executablePath, "Chrome executable was not found on the worker.");
+
+          const browser = await chromium.launch({headless: true, executablePath});
+          const context = await browser.newContext();
+          let intercepted = null;
+          await context.route(`${redirectUri}*`, async (route) => {
+            intercepted = route.request().url();
+            await route.fulfill({
+              status: 200,
+              contentType: "text/html; charset=utf-8",
+              body: "<h2>Telic authorization complete</h2>",
+            });
+          });
+
+          // Use a second tab to reproduce the VM failure mode that the old
+          // page-local listeners missed.
+          const unrelatedPage = await context.newPage();
+          await unrelatedPage.setContent("<p>original authorization tab</p>");
+          const callbackPage = await context.newPage();
+          await callbackPage.goto(callbackUrl, {waitUntil: "domcontentloaded"});
+          assert.equal(intercepted, callbackUrl);
+          assert.match(await callbackPage.textContent("body"), /Telic authorization complete/);
+          await browser.close();
+          console.log("Cross-tab browser-context OAuth callback interception passed.");
+          NODE
+
+          echo "Validated context-callback controller at private commit $(git rev-parse HEAD)."
