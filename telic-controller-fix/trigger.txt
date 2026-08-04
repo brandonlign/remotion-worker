@@ -1,0 +1,1 @@
+Inspect the private Telic controller archive and validate the Studio-only publishing fix.
