@@ -1,4 +1,4 @@
-name: Validate Telic controller context callback
+name: Validate Telic connector-safe controller
 
 on:
   pull_request:
@@ -10,7 +10,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: telic-controller-context-callback-${{ github.event.pull_request.number }}
+  group: telic-controller-connector-safe-${{ github.event.pull_request.number }}
   cancel-in-progress: true
 
 jobs:
@@ -35,7 +35,7 @@ jobs:
           persist-credentials: false
           fetch-depth: 1
 
-      - name: Reconstruct package and validate browser-context callback
+      - name: Reconstruct and validate controller package
         working-directory: private-source
         shell: bash
         run: |
@@ -59,7 +59,12 @@ jobs:
           tar -xzf "$archive" -C "$work/extracted"
 
           controller="$work/extracted/telic-vm-controller-v3"
-          for override in src/oauth-callback.mjs src/authorize-google.mjs; do
+          for override in \
+            src/oauth-callback.mjs \
+            src/authorize-google.mjs \
+            prompts/source-stage.txt \
+            prompts/render-stage.txt \
+            prompts/recovery-stage.txt; do
             mkdir -p "$controller/$(dirname "$override")"
             cp "tools/telic-controller-v3/overrides/$override" "$controller/$override"
           done
@@ -68,12 +73,22 @@ jobs:
           node --check "$controller/src/oauth-callback.mjs"
           node --check "$controller/src/authorize-google.mjs"
           grep -q 'context.route(routePattern, routeHandler)' "$controller/src/authorize-google.mjs"
-          grep -q 'context.on("request"' "$controller/src/authorize-google.mjs"
-          grep -q 'context.on("requestfailed"' "$controller/src/authorize-google.mjs"
-          grep -q 'VM browser context' "$controller/src/authorize-google.mjs"
           grep -q 'https://www.googleapis.com/auth/drive.readonly' "$controller/src/authorize-google.mjs"
           if grep -q 'auth/youtube' "$controller/src/authorize-google.mjs"; then
             echo "YouTube OAuth scope returned unexpectedly." >&2
+            exit 1
+          fi
+
+          grep -q 'AutoShort' "$controller/prompts/source-stage.txt"
+          grep -q 'automation/current/job.json' "$controller/prompts/source-stage.txt"
+          grep -q 'Do not stop because there is no working directory' "$controller/prompts/source-stage.txt"
+          grep -q 'final.mp4' "$controller/prompts/render-stage.txt"
+          grep -q 'publish.json' "$controller/prompts/render-stage.txt"
+          grep -q 'YouTube publication is disabled or delegated' "$controller/prompts/render-stage.txt"
+          grep -q 'connector-safe' "$controller/prompts/recovery-stage.txt"
+          grep -q 'A previous response may have stopped' "$controller/prompts/recovery-stage.txt"
+          if grep -q 'Run the relevant lint, type, build, and local render checks' "$controller/prompts/source-stage.txt"; then
+            echo "Legacy impossible local-checkout instruction remains in source prompt." >&2
             exit 1
           fi
 
@@ -96,21 +111,13 @@ jobs:
 
           const executablePath = execFileSync("bash", ["-lc", "command -v google-chrome || command -v chromium || command -v chromium-browser"], {encoding: "utf8"}).trim();
           assert.ok(executablePath, "Chrome executable was not found on the worker.");
-
           const browser = await chromium.launch({headless: true, executablePath});
           const context = await browser.newContext();
           let intercepted = null;
           await context.route(`${redirectUri}*`, async (route) => {
             intercepted = route.request().url();
-            await route.fulfill({
-              status: 200,
-              contentType: "text/html; charset=utf-8",
-              body: "<h2>Telic authorization complete</h2>",
-            });
+            await route.fulfill({status: 200, contentType: "text/html; charset=utf-8", body: "<h2>Telic authorization complete</h2>"});
           });
-
-          // Use a second tab to reproduce the VM failure mode that the old
-          // page-local listeners missed.
           const unrelatedPage = await context.newPage();
           await unrelatedPage.setContent("<p>original authorization tab</p>");
           const callbackPage = await context.newPage();
@@ -121,4 +128,4 @@ jobs:
           console.log("Cross-tab browser-context OAuth callback interception passed.");
           NODE
 
-          echo "Validated context-callback controller at private commit $(git rev-parse HEAD)."
+          echo "Validated connector-safe controller at private commit $(git rev-parse HEAD)."
