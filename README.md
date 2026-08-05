@@ -8,7 +8,7 @@ The public repository contains only rendering, validation, review-asset, and pac
 
 1. Accepts an owner-created render request containing an opaque job ID and a private source commit SHA.
 2. Checks out the private source with a repository-scoped, read-only token.
-3. Installs dependencies, runs an optional trusted private preparation command, runs the source project's checks, and renders the configured Remotion composition.
+3. Installs dependencies, generates the private Gemini voiceover when requested, force-aligns the exact script to the finished waveform with pinned WhisperX, runs the source project's checks, and renders the configured Remotion composition.
 4. Creates a compressed review MP4, contact sheet, keyframes, metadata, checksums, and a private build log.
 5. Uploads the complete result through a least-privilege Google Drive credential that can access only files and folders created by this rclone remote.
 6. Publishes no render artifact and no detailed private build output in the public repository.
@@ -29,15 +29,14 @@ The private Remotion repository must contain `remotion-worker.json`. See [`docs/
 
 ## Setup
 
-See [`docs/SETUP.md`](docs/SETUP.md). The worker requires three core GitHub Actions secrets:
+See [`docs/SETUP.md`](docs/SETUP.md). The worker requires these GitHub Actions secrets:
 
 - `SOURCE_REPOSITORY`
 - `SOURCE_REPO_TOKEN`
 - `RCLONE_CONFIG_B64`
+- `GEMINI_API_KEY` — used only inside the trusted private voice-preparation step
 
-Telic jobs that generate narration during the private preparation step also require:
-
-- `GEMINI_API_KEY` — Google AI Studio API key used only inside the trusted private voice-preparation step
+The worker caches the pinned WhisperX 3.8.6 environment and English alignment model. Voice preparation fails rather than returning proportional timing when exact-script forced alignment does not pass its coverage and confidence gates.
 
 ## Security
 
