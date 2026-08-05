@@ -92,7 +92,7 @@ const main = async () => {
   const [black, silence, freeze] = await Promise.all([
     runCapture("ffmpeg", [
       "-hide_banner", "-loglevel", "info", "-i", videoPath,
-      "-vf", `blackdetect=d=${quality.maximumBlackSeconds}:pix_th=0.98`,
+      "-vf", `blackdetect=d=${quality.maximumBlackSeconds}:pic_th=0.98:pix_th=0.10`,
       "-an", "-f", "null", "-",
     ]),
     runCapture("ffmpeg", [
