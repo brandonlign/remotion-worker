@@ -66,7 +66,6 @@ jobs:
           ELEVENLABS_API_KEY: ${{ secrets.ELEVENLABS_API_KEY }}
           LOCAL_TTS_VOICE: am_liam
           LOCAL_TTS_SPEED: "1.03"
-          KOKORO_CACHE_DIR: ${{ env.HOME }}/.cache/telic-kokoro
         run: |
           set +e
           mkdir -p "$RUNNER_TEMP/render-result"
