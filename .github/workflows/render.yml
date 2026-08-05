@@ -75,34 +75,30 @@ jobs:
           printf '%s\n' "$code" > "$RUNNER_TEMP/render-result/exit-code.txt"
           echo "exit_code=$code" >> "$GITHUB_OUTPUT"
           if [ "$code" -eq 0 ]; then
-            echo "Private render completed; running the autonomous final quality gate."
+            echo "Private render completed; running deterministic media QC."
           else
             echo "Private render failed; preserving the private diagnostic package."
           fi
           exit 0
 
-      - name: Run autonomous final quality gate
+      - name: Run deterministic media quality gate
         id: quality
         if: always() && steps.render.outputs.exit_code == '0'
         shell: bash
-        env:
-          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-          OPENAI_QC_MODEL: ${{ vars.OPENAI_QC_MODEL }}
         run: |
           set +e
-          node scripts/quality-gate.mjs \
+          node scripts/deterministic-quality-gate.mjs \
             "$RUNNER_TEMP/render-result" \
             private-source/automation/current/job.json \
             private-source/automation/config.json \
-            private-source/automation/prompts/telic-final-quality-gate.txt \
             >"$RUNNER_TEMP/private-quality.log" 2>&1
           code=$?
           cp "$RUNNER_TEMP/private-quality.log" "$RUNNER_TEMP/render-result/private-quality.log"
           echo "exit_code=$code" >> "$GITHUB_OUTPUT"
           if [ "$code" -eq 0 ]; then
-            echo "The autonomous final quality gate passed."
+            echo "Deterministic media QC passed; ChatGPT web must inspect private Drive review assets."
           else
-            echo "The autonomous final quality gate rejected the render."
+            echo "Deterministic media QC rejected the render."
           fi
           exit 0
 
@@ -132,6 +128,8 @@ jobs:
             echo "Private Drive delivery completed."
           else
             echo "Private Drive delivery failed."
+            tail -n 8 "$RUNNER_TEMP/private-upload.log" \
+              | sed -E 's/(token|client_secret|refresh_token|access_token)[[:space:]]*=[[:space:]]*[^[:space:]]+/\1=[REDACTED]/Ig'
             exit 1
           fi
 
@@ -149,7 +147,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: gh pr close "${{ github.event.pull_request.number }}" --delete-branch
 
-      - name: Fail workflow when rendering, quality, or Drive delivery failed
+      - name: Fail workflow when rendering, deterministic QC, or Drive delivery failed
         if: >-
           always() &&
           (
@@ -158,5 +156,5 @@ jobs:
             steps.drive.outcome != 'success'
           )
         run: |
-          echo "The private render, autonomous quality gate, or required Drive delivery failed. Private diagnostics were retained when possible."
+          echo "The private render, deterministic media QC, or required Drive delivery failed. Private diagnostics were retained when possible."
           exit 1
