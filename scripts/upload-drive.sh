@@ -35,21 +35,21 @@ if ! rclone listremotes --config "$RCLONE_CONFIG_FILE" | grep -qx 'gdrive:'; the
   exit 65
 fi
 
-RCLONE_SCOPE="$(awk '
-  /^\[gdrive\]$/ { in_remote=1; next }
-  /^\[/ { if (in_remote) exit }
-  in_remote && /^[[:space:]]*scope[[:space:]]*=/ {
-    sub(/^[^=]*=[[:space:]]*/, "", $0)
-    sub(/[[:space:]]*$/, "", $0)
-    print
-    exit
-  }
-' "$RCLONE_CONFIG_FILE")"
+RCLONE_SCOPE="$(python3 - "$RCLONE_CONFIG_FILE" <<'PY'
+import configparser
+import sys
+
+parser = configparser.RawConfigParser()
+parser.read(sys.argv[1])
+value = parser.get("gdrive", "scope", fallback="")
+print(value.strip().strip("\"'"))
+PY
+)"
 
 case "$RCLONE_SCOPE" in
   drive.file|https://www.googleapis.com/auth/drive.file|drive|https://www.googleapis.com/auth/drive) ;;
   *)
-    echo "The gdrive remote must use drive.file or Drive scope." >&2
+    printf 'The gdrive remote has an unsupported scope: %q\n' "$RCLONE_SCOPE" >&2
     exit 65
     ;;
 esac
