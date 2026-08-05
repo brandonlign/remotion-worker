@@ -31,12 +31,6 @@ jobs:
         with:
           node-version: 22
 
-      - name: Cache local Kokoro voice model
-        uses: actions/cache@v4
-        with:
-          path: ~/.cache/telic-kokoro
-          key: telic-kokoro-v1-int8-${{ runner.os }}-${{ runner.arch }}
-
       - name: Validate render request
         id: request
         run: node scripts/validate-job.mjs jobs/request.json
@@ -54,7 +48,7 @@ jobs:
       - name: Install system tools
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y -qq ffmpeg rclone python3-venv espeak-ng libsndfile1
+          sudo apt-get install -y -qq ffmpeg rclone
 
       - name: Prepare locked voiceover and timing
         id: voice
@@ -63,10 +57,7 @@ jobs:
         env:
           JOB_ID: ${{ steps.request.outputs.job_id }}
           SOURCE_SHA: ${{ steps.request.outputs.source_sha }}
-          ELEVENLABS_API_KEYS_JSON: ${{ secrets.ELEVENLABS_API_KEYS_JSON }}
-          ELEVENLABS_API_KEY: ${{ secrets.ELEVENLABS_API_KEY }}
-          LOCAL_TTS_VOICE: am_liam
-          LOCAL_TTS_SPEED: "1.03"
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
         run: |
           set +e
           mkdir -p "$RUNNER_TEMP/render-result"
@@ -80,7 +71,7 @@ jobs:
           printf '%s\n' "$code" > "$RUNNER_TEMP/render-result/exit-code.txt"
           echo "exit_code=$code" >> "$GITHUB_OUTPUT"
           if [ "$code" -eq 0 ]; then
-            echo "Private voiceover and exact timing package completed."
+            echo "Private voiceover and timing package completed."
           else
             echo "Private voice preparation failed; preserving diagnostics."
           fi
