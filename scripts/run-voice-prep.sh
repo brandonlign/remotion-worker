@@ -30,8 +30,8 @@ if [ -z "${JOB_ID:-}" ] || [ -z "${SOURCE_SHA:-}" ]; then
   exit 65
 fi
 
-if [ -z "${GEMINI_API_KEY:-}" ]; then
-  echo "GEMINI_API_KEY is required for private Gemini voice preparation." >&2
+if [ -z "${GEMINI_API_KEYS_JSON:-}" ] && [ -z "${GEMINI_API_KEY:-}" ]; then
+  echo "GEMINI_API_KEYS_JSON or GEMINI_API_KEY is required for private Gemini voice preparation." >&2
   exit 65
 fi
 
