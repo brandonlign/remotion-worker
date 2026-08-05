@@ -74,30 +74,24 @@ Store the clipboard value as the repository secret `RCLONE_CONFIG_B64`.
 
 The configuration contains a renewable Google OAuth token. Treat it like a password. Do not commit it, paste it into issues, or expose it in workflow logs.
 
-## 4. Add optional private preparation secrets
+## 4. Add the private voice-preparation secret
 
-For automatic Telic narration, create one encrypted repository secret named `ELEVENLABS_API_KEYS_JSON`. Its value must be a JSON array of authorized ElevenLabs API keys in preferred order:
+For automatic Telic narration, create one encrypted repository secret named `GEMINI_API_KEY`. Use the Google AI Studio API key for the project that has access to Gemini 3.1 Flash TTS Preview.
 
-```json
-["key-one", "key-two", "key-three"]
-```
+The private source currently locks production narration to:
 
-The generator tries the first key and advances only when a key has exhausted quota, is invalid or expired, or lacks required permissions. Temporary concurrency, rate-limit, server-busy, and service errors retry the same key with backoff rather than cycling through the pool. Duplicate keys are ignored. The older `ELEVENLABS_API_KEY` single-key secret remains supported as a fallback.
+- model: `gemini-3.1-flash-tts-preview`
+- voice: `Iapetus`
+- output: mono MP3 at 44.1 kHz and 128 kbps
 
-Keys from the same ElevenLabs workspace normally share that workspace's usage quota. A pool only adds capacity when its keys represent separate authorized credit pools or when per-key credit restrictions differ. Do not use key rotation to evade provider limits or terms.
+The key is exposed only to the trusted private voice-preparation process. Do not put it in `remotion-worker.json`, the render request, a source file, an issue, a pull request, or a workflow log.
 
-Do not put any key in `remotion-worker.json`, the render request, a source file, an issue, a pull request, or a workflow log.
-
-The worker repository therefore uses these core secrets:
+The worker repository therefore uses these secrets:
 
 - `SOURCE_REPOSITORY`
 - `SOURCE_REPO_TOKEN`
 - `RCLONE_CONFIG_B64`
-
-And one Telic narration secret when voiceover generation is enabled:
-
-- `ELEVENLABS_API_KEYS_JSON` — preferred pool
-- `ELEVENLABS_API_KEY` — optional legacy fallback
+- `GEMINI_API_KEY`
 
 ## 5. Submit a render request
 
