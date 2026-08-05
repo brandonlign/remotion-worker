@@ -66,6 +66,7 @@ jobs:
         env:
           JOB_ID: ${{ steps.request.outputs.job_id }}
           SOURCE_SHA: ${{ steps.request.outputs.source_sha }}
+          GEMINI_API_KEYS_JSON: ${{ secrets.GEMINI_API_KEYS_JSON }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
         run: |
           set +e
