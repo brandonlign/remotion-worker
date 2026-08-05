@@ -99,6 +99,11 @@ jobs:
             echo "Deterministic media QC passed; ChatGPT web must inspect private Drive review assets."
           else
             echo "Deterministic media QC rejected the render."
+            node - "$RUNNER_TEMP/render-result/quality-gate.json" <<'NODE'
+          const fs = require("node:fs");
+          const report = JSON.parse(fs.readFileSync(process.argv[2], "utf8"));
+          console.log(JSON.stringify({status: report.status, media: report.media, deterministicIssues: report.deterministicIssues}, null, 2));
+          NODE
           fi
           exit 0
 
