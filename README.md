@@ -35,10 +35,9 @@ See [`docs/SETUP.md`](docs/SETUP.md). The worker requires three core GitHub Acti
 - `SOURCE_REPO_TOKEN`
 - `RCLONE_CONFIG_B64`
 
-Telic jobs that generate narration during the private preparation step also require one of:
+Telic jobs that generate narration during the private preparation step also require:
 
-- `ELEVENLABS_API_KEYS_JSON` — preferred; one JSON array containing the authorized key pool
-- `ELEVENLABS_API_KEY` — legacy single-key fallback
+- `GEMINI_API_KEY` — Google AI Studio API key used only inside the trusted private voice-preparation step
 
 ## Security
 
