@@ -102,11 +102,11 @@ jobs:
           if [ "$code" -eq 0 ]; then
             echo "The autonomous final quality gate passed."
           else
-            echo "The autonomous final quality gate rejected the render; publication will be skipped."
+            echo "The autonomous final quality gate rejected the render."
           fi
           exit 0
 
-      - name: Refresh private checksums before delivery
+      - name: Refresh private checksums
         if: always()
         shell: bash
         run: |
@@ -129,93 +129,11 @@ jobs:
             "$RUNNER_TEMP/render-result" \
             "$JOB_ID" \
             >"$RUNNER_TEMP/private-upload.log" 2>&1; then
-            echo "Private Drive delivery completed before publication."
+            echo "Private Drive delivery completed."
           else
-            echo "Private Drive delivery failed; YouTube publication will not run."
+            echo "Private Drive delivery failed."
             exit 1
           fi
-
-      - name: Upload and schedule on YouTube
-        id: publish
-        if: >-
-          always() &&
-          steps.render.outputs.exit_code == '0' &&
-          steps.quality.outputs.exit_code == '0' &&
-          steps.drive.outcome == 'success'
-        shell: bash
-        env:
-          AUTOPUBLISH_ENABLED: ${{ vars.AUTOPUBLISH_ENABLED }}
-          YOUTUBE_CLIENT_ID: ${{ secrets.YOUTUBE_CLIENT_ID }}
-          YOUTUBE_CLIENT_SECRET: ${{ secrets.YOUTUBE_CLIENT_SECRET }}
-          YOUTUBE_REFRESH_TOKEN: ${{ secrets.YOUTUBE_REFRESH_TOKEN }}
-        run: |
-          set +e
-          if [ "${AUTOPUBLISH_ENABLED:-0}" != "1" ]; then
-            node - "$RUNNER_TEMP/render-result/youtube-status.json" "${{ steps.request.outputs.job_id }}" <<'NODE'
-          const fs = require("node:fs");
-          const [outputPath, jobId] = process.argv.slice(2);
-          fs.writeFileSync(outputPath, `${JSON.stringify({
-            status: "disabled",
-            jobId,
-            completedAt: new Date().toISOString(),
-          }, null, 2)}\n`, { mode: 0o600 });
-          NODE
-            printf '%s\n' "YouTube publication is disabled; this quality-approved unattended job cannot be marked complete." \
-              > "$RUNNER_TEMP/private-youtube.log"
-            cp "$RUNNER_TEMP/private-youtube.log" "$RUNNER_TEMP/render-result/private-youtube.log"
-            echo "exit_code=78" >> "$GITHUB_OUTPUT"
-            echo "YouTube publication is disabled; preserving the quality-approved private render and failing the unattended job."
-            exit 0
-          fi
-
-          output_name="$(node -e 'const fs=require("fs"); const value=JSON.parse(fs.readFileSync(process.argv[1],"utf8")); process.stdout.write(value.outputName);' "$RUNNER_TEMP/render-result/status.json")"
-          node scripts/upload-youtube.mjs \
-            "$RUNNER_TEMP/render-result/${output_name}.mp4" \
-            private-source/automation/current/youtube.json \
-            "$RUNNER_TEMP/render-result/youtube-status.json" \
-            >"$RUNNER_TEMP/private-youtube.log" 2>&1
-          code=$?
-          cp "$RUNNER_TEMP/private-youtube.log" "$RUNNER_TEMP/render-result/private-youtube.log"
-          echo "exit_code=$code" >> "$GITHUB_OUTPUT"
-          if [ "$code" -eq 0 ]; then
-            echo "YouTube accepted, processed, and scheduled the quality-approved private render."
-          else
-            echo "YouTube publication failed; preserving private diagnostics."
-          fi
-          exit 0
-
-      - name: Refresh checksums after publication attempt
-        if: always() && steps.publish.outcome != 'skipped'
-        shell: bash
-        run: |
-          find "$RUNNER_TEMP/render-result" -type f ! -name checksums.txt -print0 \
-            | sort -z \
-            | xargs -0 sha256sum \
-            > "$RUNNER_TEMP/render-result/checksums.txt"
-
-      - name: Sync private publication status to Drive
-        if: always() && steps.publish.outcome != 'skipped'
-        continue-on-error: true
-        shell: bash
-        env:
-          RCLONE_CONFIG_B64: ${{ secrets.RCLONE_CONFIG_B64 }}
-          JOB_ID: ${{ steps.request.outputs.job_id }}
-        run: |
-          code=1
-          for attempt in 1 2 3; do
-            if bash scripts/upload-drive.sh \
-              "$RUNNER_TEMP/render-result" \
-              "$JOB_ID" \
-              >"$RUNNER_TEMP/private-status-upload.log" 2>&1; then
-              echo "Private publication status was synchronized to Drive."
-              exit 0
-            fi
-            if [ "$attempt" -lt 3 ]; then
-              sleep $((attempt * 20))
-            fi
-          done
-          echo "The render was already delivered before publication, but the post-publication status sync failed."
-          exit "$code"
 
       - name: Remove private source checkout
         if: always()
@@ -226,21 +144,19 @@ jobs:
           always() &&
           steps.render.outputs.exit_code == '0' &&
           steps.quality.outputs.exit_code == '0' &&
-          steps.drive.outcome == 'success' &&
-          steps.publish.outputs.exit_code == '0'
+          steps.drive.outcome == 'success'
         env:
           GH_TOKEN: ${{ github.token }}
         run: gh pr close "${{ github.event.pull_request.number }}" --delete-branch
 
-      - name: Fail workflow when rendering, quality, Drive delivery, or publication failed
+      - name: Fail workflow when rendering, quality, or Drive delivery failed
         if: >-
           always() &&
           (
             steps.render.outputs.exit_code != '0' ||
             steps.quality.outputs.exit_code != '0' ||
-            steps.drive.outcome != 'success' ||
-            steps.publish.outputs.exit_code != '0'
+            steps.drive.outcome != 'success'
           )
         run: |
-          echo "The private render, autonomous quality gate, required Drive delivery, or required YouTube publication failed. Private diagnostics were retained when possible."
+          echo "The private render, autonomous quality gate, or required Drive delivery failed. Private diagnostics were retained when possible."
           exit 1
