@@ -56,7 +56,7 @@ jobs:
           grep -q '"styleMode": "pragma"' automation/config.json
           grep -q 'PragmaAutoShort' src/compositions/AutoShort/AutoShortRouter.tsx
           grep -q 'am_liam' scripts/autopilot/render-kokoro-voice.py
-          grep -q 'kokoro-onnx==0.5.0' scripts/autopilot/generate-local-kokoro-voiceover.mjs
+          grep -q 'PACKAGE_VERSION = "0.5.0"' scripts/autopilot/generate-local-kokoro-voiceover.mjs
           npm ci --no-audit --no-fund
           npm run lint
           npm run build
