@@ -50,17 +50,25 @@ node "$WORKER_ROOT/scripts/validate-source-config.mjs" \
 INSTALL_COMMAND="$(node -e 'const fs=require("fs"); const c=JSON.parse(fs.readFileSync(process.argv[1],"utf8")); process.stdout.write(c.installCommand);' "$NORMALIZED_CONFIG")"
 
 WHISPERX_VERSION="3.8.6"
+PYTHON_ABI="$(python3 -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")')"
+ALIGNER_MARKER_VALUE="$WHISPERX_VERSION-py$PYTHON_ABI"
 ALIGNER_ROOT="${TELIC_ALIGNER_ROOT:-$HOME/.cache/telic-whisperx-$WHISPERX_VERSION}"
 ALIGNER_VENV="$ALIGNER_ROOT/venv"
 ALIGNER_MARKER="$ALIGNER_ROOT/version.txt"
-if [ ! -x "$ALIGNER_VENV/bin/python" ] || [ ! -f "$ALIGNER_MARKER" ] || [ "$(cat "$ALIGNER_MARKER")" != "$WHISPERX_VERSION" ]; then
+if [ ! -x "$ALIGNER_VENV/bin/python" ] || [ ! -f "$ALIGNER_MARKER" ] || [ "$(cat "$ALIGNER_MARKER")" != "$ALIGNER_MARKER_VALUE" ]; then
   rm -rf "$ALIGNER_ROOT"
   mkdir -p "$ALIGNER_ROOT"
   python3 -m venv "$ALIGNER_VENV"
   "$ALIGNER_VENV/bin/python" -m pip install --disable-pip-version-check --no-input --upgrade pip
   "$ALIGNER_VENV/bin/python" -m pip install --disable-pip-version-check --no-input "whisperx==$WHISPERX_VERSION"
-  printf '%s\n' "$WHISPERX_VERSION" > "$ALIGNER_MARKER"
+  printf '%s\n' "$ALIGNER_MARKER_VALUE" > "$ALIGNER_MARKER"
 fi
+
+"$ALIGNER_VENV/bin/python" - <<'PY'
+from importlib.metadata import version
+if version("whisperx") != "3.8.6":
+    raise SystemExit("Pinned WhisperX version check failed.")
+PY
 
 export TELIC_ALIGNER_PYTHON="$ALIGNER_VENV/bin/python"
 export TORCH_HOME="${TORCH_HOME:-$HOME/.cache/torch}"
