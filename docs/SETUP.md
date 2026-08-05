@@ -74,30 +74,29 @@ Store the clipboard value as the repository secret `RCLONE_CONFIG_B64`.
 
 The configuration contains a renewable Google OAuth token. Treat it like a password. Do not commit it, paste it into issues, or expose it in workflow logs.
 
-## 4. Add optional private preparation secrets
+## 4. Add the private voice-preparation secret
 
-For automatic Telic narration, create one encrypted repository secret named `ELEVENLABS_API_KEYS_JSON`. Its value must be a JSON array of authorized ElevenLabs API keys in preferred order:
+For automatic Telic narration, create one encrypted repository secret named `GEMINI_API_KEY`. Use the Google AI Studio API key for the project that has access to Gemini 3.1 Flash TTS Preview.
 
-```json
-["key-one", "key-two", "key-three"]
-```
+The private source currently locks production narration to:
 
-The generator tries the first key and advances only when a key has exhausted quota, is invalid or expired, or lacks required permissions. Temporary concurrency, rate-limit, server-busy, and service errors retry the same key with backoff rather than cycling through the pool. Duplicate keys are ignored. The older `ELEVENLABS_API_KEY` single-key secret remains supported as a fallback.
+- model: `gemini-3.1-flash-tts-preview`
+- voice: `Iapetus`
+- output: mono MP3 at 44.1 kHz and 128 kbps
+- timing: pinned WhisperX 3.8.6 forced alignment of the exact script to the finished audio
 
-Keys from the same ElevenLabs workspace normally share that workspace's usage quota. A pool only adds capacity when its keys represent separate authorized credit pools or when per-key credit restrictions differ. Do not use key rotation to evade provider limits or terms.
+The first voice-preparation run installs the pinned WhisperX environment and downloads the default English wav2vec2 alignment model. The worker caches both for later jobs. No Hugging Face token is required for the default English alignment path.
 
-Do not put any key in `remotion-worker.json`, the render request, a source file, an issue, a pull request, or a workflow log.
+Voice preparation refuses proportional timing. It must produce character timestamps for the exact narration, cover at least 98.5% of letters and digits, and pass confidence and leading/trailing-edge checks. A failure preserves private diagnostics in Drive and stops the job before custom composition work.
 
-The worker repository therefore uses these core secrets:
+The key is exposed only to the trusted private voice-preparation process. Do not put it in `remotion-worker.json`, the render request, a source file, an issue, a pull request, or a workflow log.
+
+The worker repository therefore uses these secrets:
 
 - `SOURCE_REPOSITORY`
 - `SOURCE_REPO_TOKEN`
 - `RCLONE_CONFIG_B64`
-
-And one Telic narration secret when voiceover generation is enabled:
-
-- `ELEVENLABS_API_KEYS_JSON` — preferred pool
-- `ELEVENLABS_API_KEY` — optional legacy fallback
+- `GEMINI_API_KEY`
 
 ## 5. Submit a render request
 
@@ -123,18 +122,17 @@ The public manifest intentionally contains no topic, script, asset name, composi
 
 ## 6. Retrieve results
 
-The worker creates `Telic-Renders/<jobId>` in Google Drive. A successful run contains:
+The worker creates `Telic-Renders/<jobId>` in Google Drive. A successful voice-preparation package contains:
 
-- the full rendered MP4
-- `review.mp4`
-- `contact-sheet.jpg`
-- sampled keyframes
-- `media-metadata.json`
+- `voiceover.mp3`
+- `alignment.json` with character and word timing plus alignment quality metrics
+- `audio-runtime.json` with exact beat frames
+- `narration.txt`
 - `status.json`
 - `checksums.txt`
-- `private-build.log`
+- `private-voice.log`
 
-A failed render still uploads its private build log and exit code when the Drive upload configuration works.
+A successful render package contains the full rendered MP4, review MP4, contact sheet, keyframes, metadata, checksums, and private build log. A failed stage still uploads its private diagnostic package when the Drive configuration works.
 
 ## 7. Keep the public repository controlled
 
