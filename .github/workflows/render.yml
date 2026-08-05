@@ -84,9 +84,12 @@ jobs:
 
           grep -q 'Do not create scratch files' "$controller/prompts/source-stage.txt"
           grep -q 'automation/current/job.json' "$controller/prompts/source-stage.txt"
+          grep -q 'styleMode' "$controller/prompts/source-stage.txt"
+          grep -q 'modular editorial scenes' "$controller/prompts/source-stage.txt"
           grep -q 'final.mp4' "$controller/prompts/render-stage.txt"
           grep -q 'publish.json' "$controller/prompts/render-stage.txt"
           grep -q 'continue from the furthest verified stage' "$controller/prompts/recovery-stage.txt"
+          grep -q 'styleMode' "$controller/prompts/recovery-stage.txt"
           grep -q 'Submitted immediate connector-safe recovery' "$controller/src/recover-now.mjs"
           grep -q 'telic-controller-recover' tools/telic-controller-v3/install-from-repo.sh
           if grep -Eq 'Run the relevant lint|YouTube publication is disabled or delegated|Do not stop because there is no working directory' "$controller/prompts/"*.txt; then
