@@ -5,6 +5,7 @@ on:
     types: [opened, synchronize, reopened]
     paths:
       - jobs/request.json
+      - .github/workflows/render.yml
 
 permissions:
   contents: read
@@ -81,18 +82,15 @@ jobs:
             exit 1
           fi
 
-          grep -q 'AutoShort' "$controller/prompts/source-stage.txt"
+          grep -q 'Do not create scratch files' "$controller/prompts/source-stage.txt"
           grep -q 'automation/current/job.json' "$controller/prompts/source-stage.txt"
-          grep -q 'Do not stop because there is no working directory' "$controller/prompts/source-stage.txt"
           grep -q 'final.mp4' "$controller/prompts/render-stage.txt"
           grep -q 'publish.json' "$controller/prompts/render-stage.txt"
-          grep -q 'YouTube publication is disabled or delegated' "$controller/prompts/render-stage.txt"
-          grep -q 'connector-safe' "$controller/prompts/recovery-stage.txt"
-          grep -q 'A previous response may have stopped' "$controller/prompts/recovery-stage.txt"
+          grep -q 'Continue from the furthest verified stage' "$controller/prompts/recovery-stage.txt"
           grep -q 'Submitted immediate connector-safe recovery' "$controller/src/recover-now.mjs"
           grep -q 'telic-controller-recover' tools/telic-controller-v3/install-from-repo.sh
-          if grep -q 'Run the relevant lint, type, build, and local render checks' "$controller/prompts/source-stage.txt"; then
-            echo "Legacy impossible local-checkout instruction remains in source prompt." >&2
+          if grep -Eq 'Run the relevant lint|YouTube publication is disabled or delegated|Do not stop because there is no working directory' "$controller/prompts/"*.txt; then
+            echo "A legacy verbose or impossible instruction remains." >&2
             exit 1
           fi
 
@@ -132,4 +130,4 @@ jobs:
           console.log("Cross-tab browser-context OAuth callback interception passed.");
           NODE
 
-          echo "Validated connector-safe controller at private commit $(git rev-parse HEAD)."
+          echo "Validated concise connector-safe controller at private commit $(git rev-parse HEAD)."
