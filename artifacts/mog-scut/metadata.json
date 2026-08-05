@@ -1,0 +1,53 @@
+{
+  "benchmark": "SCUT-FBP5500",
+  "convertedModelBytes": 8885657,
+  "inputShape": [
+    null,
+    350,
+    350,
+    3
+  ],
+  "limitations": [
+    "Front-view photographs only; the benchmark does not contain profile views.",
+    "The benchmark includes Asian and Caucasian faces but does not represent all populations.",
+    "Ratings reflect the benchmark raters and are not universal or objective attractiveness labels.",
+    "The dataset and derived use are restricted to non-commercial research unless permission is obtained."
+  ],
+  "model": "AttractiveNet MobileNetV2 regression checkpoint",
+  "modelSource": "gustavz/AttractiveNet",
+  "onnxInputName": "mobilenetv2_1.00_224_input",
+  "onnxOutputName": "dense",
+  "originalModelBytes": 27531848,
+  "originalModelSha256": "6fcbd4a8c1e23356568d38019ef9e1f4bd650a124d4dc48863c9f23ed6e20898",
+  "outputShape": [
+    null,
+    1
+  ],
+  "parity": {
+    "kerasPrediction": 3.4145188331604004,
+    "maxAbsoluteDifference": 1.0013580322265625e-05,
+    "onnxPrediction": 3.4145288467407227
+  },
+  "percentileDefinition": "Empirical percentile of the predicted 1\u20135 rating within all 5,500 SCUT-FBP5500 mean human ratings.",
+  "preprocessing": {
+    "layout": "NHWC",
+    "pixelScale": "RGB values divided by 255",
+    "resize": [
+      350,
+      350
+    ]
+  },
+  "reportedEvaluation": {
+    "mae": 0.211983,
+    "note": "Metrics reported by the AttractiveNet repository on its held-out SCUT-FBP5500 test split.",
+    "rmse": 0.285857
+  },
+  "runtimeFormat": "ONNX",
+  "sourceBlobSha": "34284d986d8175d4e122cc94fb6138bab9269178",
+  "sourceInputShape": [
+    null,
+    null,
+    null,
+    3
+  ]
+}
