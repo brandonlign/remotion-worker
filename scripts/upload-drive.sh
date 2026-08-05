@@ -47,9 +47,9 @@ RCLONE_SCOPE="$(awk '
 ' "$RCLONE_CONFIG_FILE")"
 
 case "$RCLONE_SCOPE" in
-  drive.file|https://www.googleapis.com/auth/drive.file) ;;
+  drive.file|https://www.googleapis.com/auth/drive.file|drive|https://www.googleapis.com/auth/drive) ;;
   *)
-    echo "The gdrive remote must use the least-privilege drive.file scope." >&2
+    echo "The gdrive remote must use drive.file or Drive scope." >&2
     exit 65
     ;;
 esac
@@ -98,11 +98,8 @@ os.chmod(path, 0o600)
 PY
 }
 
-PRODUCTION_FOLDER_ID="$(resolve_unique_folder_id 'Telic Production')"
-set_drive_root "$PRODUCTION_FOLDER_ID"
-
-TEMP_FOLDER_ID="$(resolve_unique_folder_id 'TEMP RENDERS & REVIEWS')"
-set_drive_root "$TEMP_FOLDER_ID"
+RENDER_FOLDER_ID="$(resolve_unique_folder_id 'Telic-Renders')"
+set_drive_root "$RENDER_FOLDER_ID"
 
 DUPLICATE_JOB_FOLDERS="$(
   rclone lsjson gdrive: \
@@ -121,7 +118,7 @@ print(sum(1 for item in items if item.get("Name") == job_id and item.get("IsDir"
 )"
 
 if [ "$DUPLICATE_JOB_FOLDERS" -gt 1 ]; then
-  echo "Multiple temporary folders already exist for this job ID; refusing an ambiguous upload." >&2
+  echo "Multiple render folders already exist for this job ID; refusing an ambiguous upload." >&2
   exit 65
 fi
 
