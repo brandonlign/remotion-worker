@@ -35,24 +35,29 @@ if ! rclone listremotes --config "$RCLONE_CONFIG_FILE" | grep -qx 'gdrive:'; the
   exit 65
 fi
 
-RCLONE_SCOPE="$(python3 - "$RCLONE_CONFIG_FILE" <<'PY'
+if ! RCLONE_SCOPE="$(python3 - "$RCLONE_CONFIG_FILE" <<'PY'
 import configparser
+import re
 import sys
 
 parser = configparser.RawConfigParser()
 parser.read(sys.argv[1])
-value = parser.get("gdrive", "scope", fallback="")
-print(value.strip().strip("\"'"))
+raw = parser.get("gdrive", "scope", fallback="").strip().strip("\"'")
+tokens = {token for token in re.split(r"[\s,]+", raw.replace("\\,", ",")) if token}
+write_scopes = {
+    "drive.file",
+    "https://www.googleapis.com/auth/drive.file",
+    "drive",
+    "https://www.googleapis.com/auth/drive",
+}
+if not tokens.intersection(write_scopes):
+    print(f"The gdrive remote has no supported write scope: {raw!r}", file=sys.stderr)
+    raise SystemExit(65)
+print(",".join(sorted(tokens)))
 PY
-)"
-
-case "$RCLONE_SCOPE" in
-  drive.file|https://www.googleapis.com/auth/drive.file|drive|https://www.googleapis.com/auth/drive) ;;
-  *)
-    printf 'The gdrive remote has an unsupported scope: %q\n' "$RCLONE_SCOPE" >&2
-    exit 65
-    ;;
-esac
+)"; then
+  exit 65
+fi
 
 resolve_unique_folder_id() {
   local expected_name="$1"
