@@ -154,7 +154,7 @@ jobs:
           cp "$RUNNER_TEMP/private-quality.log" "$RUNNER_TEMP/render-result/private-quality.log"
           echo "exit_code=$code" >> "$GITHUB_OUTPUT"
           if [ "$code" -eq 0 ]; then
-            echo "Deterministic media QC passed; ChatGPT web must inspect private Drive review assets."
+            echo "Deterministic media QC passed; the render PR remains open for ChatGPT visual review."
           else
             echo "Deterministic media QC rejected the render."
             node - "$RUNNER_TEMP/render-result/quality-gate.json" <<'NODE'
@@ -198,18 +198,6 @@ jobs:
       - name: Remove private source checkout
         if: always()
         run: rm -rf private-source
-
-      - name: Close successful final render request
-        if: >-
-          always() &&
-          steps.request.outputs.mode == 'render' &&
-          steps.audio_restore.outputs.exit_code == '0' &&
-          steps.render.outputs.exit_code == '0' &&
-          steps.quality.outputs.exit_code == '0' &&
-          steps.drive.outcome == 'success'
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: gh pr close "${{ github.event.pull_request.number }}" --delete-branch
 
       - name: Fail workflow when the requested stage failed
         if: >-
