@@ -56,8 +56,9 @@ jobs:
           sudo apt-get update -qq
           sudo apt-get install -y -qq ffmpeg rclone python3-venv espeak-ng libsndfile1
 
-      - name: Render and build private review package
-        id: render
+      - name: Prepare locked voiceover and timing
+        id: voice
+        if: steps.request.outputs.mode == 'voice-prep'
         shell: bash
         env:
           JOB_ID: ${{ steps.request.outputs.job_id }}
@@ -69,6 +70,57 @@ jobs:
         run: |
           set +e
           mkdir -p "$RUNNER_TEMP/render-result"
+          bash scripts/run-voice-prep.sh \
+            jobs/request.json \
+            private-source \
+            "$RUNNER_TEMP/render-result" \
+            >"$RUNNER_TEMP/private-voice.log" 2>&1
+          code=$?
+          cp "$RUNNER_TEMP/private-voice.log" "$RUNNER_TEMP/render-result/private-voice.log"
+          printf '%s\n' "$code" > "$RUNNER_TEMP/render-result/exit-code.txt"
+          echo "exit_code=$code" >> "$GITHUB_OUTPUT"
+          if [ "$code" -eq 0 ]; then
+            echo "Private voiceover and exact timing package completed."
+          else
+            echo "Private voice preparation failed; preserving diagnostics."
+          fi
+          exit 0
+
+      - name: Restore locked voiceover and timing
+        id: audio_restore
+        if: steps.request.outputs.mode == 'render'
+        shell: bash
+        env:
+          RCLONE_CONFIG_B64: ${{ secrets.RCLONE_CONFIG_B64 }}
+          JOB_ID: ${{ steps.request.outputs.job_id }}
+        run: |
+          set +e
+          mkdir -p "$RUNNER_TEMP/render-result"
+          bash scripts/download-drive-audio.sh \
+            private-source \
+            "$JOB_ID" \
+            >"$RUNNER_TEMP/private-audio-restore.log" 2>&1
+          code=$?
+          cp "$RUNNER_TEMP/private-audio-restore.log" "$RUNNER_TEMP/render-result/private-audio-restore.log"
+          echo "exit_code=$code" >> "$GITHUB_OUTPUT"
+          if [ "$code" -eq 0 ]; then
+            echo "Restored the locked voice package for custom composition rendering."
+          else
+            echo "Could not restore the locked voice package."
+          fi
+          exit 0
+
+      - name: Render custom composition and build private review package
+        id: render
+        if: >-
+          steps.request.outputs.mode == 'render' &&
+          steps.audio_restore.outputs.exit_code == '0'
+        shell: bash
+        env:
+          JOB_ID: ${{ steps.request.outputs.job_id }}
+          SOURCE_SHA: ${{ steps.request.outputs.source_sha }}
+        run: |
+          set +e
           bash scripts/run-render.sh \
             jobs/request.json \
             private-source \
@@ -79,15 +131,17 @@ jobs:
           printf '%s\n' "$code" > "$RUNNER_TEMP/render-result/exit-code.txt"
           echo "exit_code=$code" >> "$GITHUB_OUTPUT"
           if [ "$code" -eq 0 ]; then
-            echo "Private render completed; running deterministic media QC."
+            echo "Private custom render completed; running deterministic media QC."
           else
-            echo "Private render failed; preserving the private diagnostic package."
+            echo "Private custom render failed; preserving the private diagnostic package."
           fi
           exit 0
 
       - name: Run deterministic media quality gate
         id: quality
-        if: always() && steps.render.outputs.exit_code == '0'
+        if: >-
+          steps.request.outputs.mode == 'render' &&
+          steps.render.outputs.exit_code == '0'
         shell: bash
         run: |
           set +e
@@ -115,14 +169,13 @@ jobs:
         if: always()
         shell: bash
         run: |
-          if [ -d "$RUNNER_TEMP/render-result" ]; then
-            find "$RUNNER_TEMP/render-result" -type f ! -name checksums.txt -print0 \
-              | sort -z \
-              | xargs -0 sha256sum \
-              > "$RUNNER_TEMP/render-result/checksums.txt"
-          fi
+          mkdir -p "$RUNNER_TEMP/render-result"
+          find "$RUNNER_TEMP/render-result" -type f ! -name checksums.txt -print0 \
+            | sort -z \
+            | xargs -0 -r sha256sum \
+            > "$RUNNER_TEMP/render-result/checksums.txt"
 
-      - name: Deliver render and diagnostics privately to Google Drive
+      - name: Deliver private package to Google Drive
         id: drive
         if: always()
         shell: bash
@@ -146,9 +199,11 @@ jobs:
         if: always()
         run: rm -rf private-source
 
-      - name: Close successful temporary render request
+      - name: Close successful final render request
         if: >-
           always() &&
+          steps.request.outputs.mode == 'render' &&
+          steps.audio_restore.outputs.exit_code == '0' &&
           steps.render.outputs.exit_code == '0' &&
           steps.quality.outputs.exit_code == '0' &&
           steps.drive.outcome == 'success'
@@ -156,14 +211,24 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: gh pr close "${{ github.event.pull_request.number }}" --delete-branch
 
-      - name: Fail workflow when rendering, deterministic QC, or Drive delivery failed
+      - name: Fail workflow when the requested stage failed
         if: >-
           always() &&
           (
-            steps.render.outputs.exit_code != '0' ||
-            steps.quality.outputs.exit_code != '0' ||
-            steps.drive.outcome != 'success'
+            (
+              steps.request.outputs.mode == 'voice-prep' &&
+              (steps.voice.outputs.exit_code != '0' || steps.drive.outcome != 'success')
+            ) ||
+            (
+              steps.request.outputs.mode == 'render' &&
+              (
+                steps.audio_restore.outputs.exit_code != '0' ||
+                steps.render.outputs.exit_code != '0' ||
+                steps.quality.outputs.exit_code != '0' ||
+                steps.drive.outcome != 'success'
+              )
+            )
           )
         run: |
-          echo "The private render, deterministic media QC, or required Drive delivery failed. Private diagnostics were retained when possible."
+          echo "The requested private voice or custom render stage failed. Private diagnostics were retained when possible."
           exit 1
