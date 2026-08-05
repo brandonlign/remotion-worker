@@ -52,7 +52,7 @@ ffmpeg \
   -loglevel error \
   -y \
   -i "$VIDEO" \
-  -vf "fps=1/2,scale=270:-2,tile=4x4:padding=8:margin=8" \
+  -vf "fps=1/2,scale=210:-2,tile=5x4:padding=8:margin=8" \
   -frames:v 1 \
   -q:v 3 \
   "$OUTPUT_DIR/contact-sheet.jpg"
