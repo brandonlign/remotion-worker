@@ -1,5 +1,6 @@
 {
   "jobId": "replace-before-render",
   "sourceSha": "0000000000000000000000000000000000000000",
-  "revision": 1
+  "revision": 1,
+  "mode": "voice-prep"
 }
