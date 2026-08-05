@@ -1,162 +1,59 @@
-name: Render private Remotion source
+name: Diagnose Telic Drive handoff
 
 on:
   pull_request:
     types: [opened, synchronize, reopened]
     paths:
       - jobs/request.json
+      - .github/workflows/render.yml
 
 permissions:
-  contents: write
-  pull-requests: write
+  contents: read
 
 concurrency:
-  group: remotion-render-${{ github.event.pull_request.number }}
+  group: telic-drive-diagnostic-${{ github.event.pull_request.number }}
   cancel-in-progress: true
 
 jobs:
-  render:
+  diagnose:
     if: >-
       github.event.pull_request.head.repo.full_name == github.repository &&
-      startsWith(github.head_ref, 'render/')
+      github.head_ref == 'render/drive-handoff-diagnostic'
     runs-on: ubuntu-latest
-    timeout-minutes: 90
+    timeout-minutes: 10
 
     steps:
-      - name: Check out worker
+      - name: Check out diagnostic harness
         uses: actions/checkout@v4
 
-      - name: Set up Node
-        uses: actions/setup-node@v4
-        with:
-          node-version: 22
-
-      - name: Validate render request
-        id: request
-        run: node scripts/validate-job.mjs jobs/request.json
-
-      - name: Check out private source
-        uses: actions/checkout@v4
-        with:
-          repository: ${{ secrets.SOURCE_REPOSITORY }}
-          ref: ${{ steps.request.outputs.source_sha }}
-          token: ${{ secrets.SOURCE_REPO_TOKEN }}
-          path: private-source
-          persist-credentials: false
-          fetch-depth: 1
-
-      - name: Install system tools
+      - name: Install rclone
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y -qq ffmpeg rclone
+          sudo apt-get install -y -qq rclone
 
-      - name: Render and build private review package
-        id: render
-        shell: bash
-        env:
-          JOB_ID: ${{ steps.request.outputs.job_id }}
-          SOURCE_SHA: ${{ steps.request.outputs.source_sha }}
-          ELEVENLABS_API_KEYS_JSON: ${{ secrets.ELEVENLABS_API_KEYS_JSON }}
-          ELEVENLABS_API_KEY: ${{ secrets.ELEVENLABS_API_KEY }}
-          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-          OPENAI_TTS_MODEL: ${{ vars.OPENAI_TTS_MODEL }}
-          OPENAI_TTS_VOICE: ${{ vars.OPENAI_TTS_VOICE }}
-          OPENAI_TTS_INSTRUCTIONS: ${{ vars.OPENAI_TTS_INSTRUCTIONS }}
-        run: |
-          set +e
-          mkdir -p "$RUNNER_TEMP/render-result"
-          bash scripts/run-render.sh \
-            jobs/request.json \
-            private-source \
-            "$RUNNER_TEMP/render-result" \
-            >"$RUNNER_TEMP/private-build.log" 2>&1
-          code=$?
-          cp "$RUNNER_TEMP/private-build.log" "$RUNNER_TEMP/render-result/private-build.log"
-          printf '%s\n' "$code" > "$RUNNER_TEMP/render-result/exit-code.txt"
-          echo "exit_code=$code" >> "$GITHUB_OUTPUT"
-          if [ "$code" -eq 0 ]; then
-            echo "Private render completed; running the autonomous final quality gate."
-          else
-            echo "Private render failed; preserving the private diagnostic package."
-          fi
-          exit 0
-
-      - name: Run autonomous final quality gate
-        id: quality
-        if: always() && steps.render.outputs.exit_code == '0'
-        shell: bash
-        env:
-          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-          OPENAI_QC_MODEL: ${{ vars.OPENAI_QC_MODEL }}
-        run: |
-          set +e
-          node scripts/quality-gate.mjs \
-            "$RUNNER_TEMP/render-result" \
-            private-source/automation/current/job.json \
-            private-source/automation/config.json \
-            private-source/automation/prompts/telic-final-quality-gate.txt \
-            >"$RUNNER_TEMP/private-quality.log" 2>&1
-          code=$?
-          cp "$RUNNER_TEMP/private-quality.log" "$RUNNER_TEMP/render-result/private-quality.log"
-          echo "exit_code=$code" >> "$GITHUB_OUTPUT"
-          if [ "$code" -eq 0 ]; then
-            echo "The autonomous final quality gate passed."
-          else
-            echo "The autonomous final quality gate rejected the render."
-          fi
-          exit 0
-
-      - name: Refresh private checksums
-        if: always()
-        shell: bash
-        run: |
-          if [ -d "$RUNNER_TEMP/render-result" ]; then
-            find "$RUNNER_TEMP/render-result" -type f ! -name checksums.txt -print0 \
-              | sort -z \
-              | xargs -0 sha256sum \
-              > "$RUNNER_TEMP/render-result/checksums.txt"
-          fi
-
-      - name: Deliver render and diagnostics privately to Google Drive
-        id: drive
-        if: always()
+      - name: Diagnose restricted Drive upload
         shell: bash
         env:
           RCLONE_CONFIG_B64: ${{ secrets.RCLONE_CONFIG_B64 }}
-          JOB_ID: ${{ steps.request.outputs.job_id }}
         run: |
-          if bash scripts/upload-drive.sh \
-            "$RUNNER_TEMP/render-result" \
-            "$JOB_ID" \
-            >"$RUNNER_TEMP/private-upload.log" 2>&1; then
-            echo "Private Drive delivery completed."
-          else
-            echo "Private Drive delivery failed."
-            exit 1
+          set -euo pipefail
+          result="$RUNNER_TEMP/drive-diagnostic"
+          mkdir -p "$result"
+          printf '%s\n' '{"status":"diagnostic"}' > "$result/status.json"
+
+          set +e
+          bash scripts/upload-drive.sh "$result" "telic-drive-diagnostic-20260805" \
+            >"$RUNNER_TEMP/drive-diagnostic.log" 2>&1
+          code=$?
+          set -e
+
+          if [ "$code" -eq 0 ]; then
+            echo "Drive upload contract passed."
+            exit 0
           fi
 
-      - name: Remove private source checkout
-        if: always()
-        run: rm -rf private-source
-
-      - name: Close successful temporary render request
-        if: >-
-          always() &&
-          steps.render.outputs.exit_code == '0' &&
-          steps.quality.outputs.exit_code == '0' &&
-          steps.drive.outcome == 'success'
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: gh pr close "${{ github.event.pull_request.number }}" --delete-branch
-
-      - name: Fail workflow when rendering, quality, or Drive delivery failed
-        if: >-
-          always() &&
-          (
-            steps.render.outputs.exit_code != '0' ||
-            steps.quality.outputs.exit_code != '0' ||
-            steps.drive.outcome != 'success'
-          )
-        run: |
-          echo "The private render, autonomous quality gate, or required Drive delivery failed. Private diagnostics were retained when possible."
-          exit 1
+          message="$(tail -n 12 "$RUNNER_TEMP/drive-diagnostic.log" \
+            | sed -E 's/(token|client_secret|refresh_token|access_token)[[:space:]]*=[[:space:]]*[^[:space:]]+/\1=[REDACTED]/Ig')"
+          echo "Drive upload contract failed with code $code."
+          printf '%s\n' "$message"
+          exit "$code"
