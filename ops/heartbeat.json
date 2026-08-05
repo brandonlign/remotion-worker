@@ -1,4 +1,0 @@
-{
-  "purpose": "Keep the public worker active so GitHub does not disable scheduled workflows after prolonged repository inactivity.",
-  "lastHeartbeatAt": null
-}
