@@ -86,7 +86,7 @@ jobs:
           grep -q 'automation/current/job.json' "$controller/prompts/source-stage.txt"
           grep -q 'final.mp4' "$controller/prompts/render-stage.txt"
           grep -q 'publish.json' "$controller/prompts/render-stage.txt"
-          grep -q 'Continue from the furthest verified stage' "$controller/prompts/recovery-stage.txt"
+          grep -q 'continue from the furthest verified stage' "$controller/prompts/recovery-stage.txt"
           grep -q 'Submitted immediate connector-safe recovery' "$controller/src/recover-now.mjs"
           grep -q 'telic-controller-recover' tools/telic-controller-v3/install-from-repo.sh
           if grep -Eq 'Run the relevant lint|YouTube publication is disabled or delegated|Do not stop because there is no working directory' "$controller/prompts/"*.txt; then
