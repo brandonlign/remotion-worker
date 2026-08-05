@@ -74,9 +74,17 @@ Store the clipboard value as the repository secret `RCLONE_CONFIG_B64`.
 
 The configuration contains a renewable Google OAuth token. Treat it like a password. Do not commit it, paste it into issues, or expose it in workflow logs.
 
-## 4. Add the private voice-preparation secret
+## 4. Add the private voice-preparation secrets
 
-For automatic Telic narration, create one encrypted repository secret named `GEMINI_API_KEY`. Use the Google AI Studio API key for the project that has access to Gemini 3.1 Flash TTS Preview.
+For automatic Telic narration, create an encrypted repository secret named `GEMINI_API_KEYS_JSON`. Its value must be a JSON array of Google AI Studio API keys:
+
+```json
+["first-api-key", "second-api-key", "third-api-key"]
+```
+
+Use keys from projects that have access to Gemini 3.1 Flash TTS Preview. The private source removes duplicate entries, deterministically spreads different jobs across the pool, and rotates to the next credential when a key is rejected or returns a quota-exhaustion response. A maximum of 50 keys is accepted.
+
+The older `GEMINI_API_KEY` secret remains supported as a single-key fallback. When `GEMINI_API_KEYS_JSON` is present, the pool takes precedence. Keep `GEMINI_API_KEY` during migration, then remove it after a successful pooled-key voice-preparation run if desired.
 
 The private source currently locks production narration to:
 
@@ -89,14 +97,15 @@ The first voice-preparation run installs the pinned WhisperX environment and dow
 
 Voice preparation refuses proportional timing. It must produce character timestamps for the exact narration, cover at least 98.5% of letters and digits, and pass confidence and leading/trailing-edge checks. A failure preserves private diagnostics in Drive and stops the job before custom composition work.
 
-The key is exposed only to the trusted private voice-preparation process. Do not put it in `remotion-worker.json`, the render request, a source file, an issue, a pull request, or a workflow log.
+The keys are exposed only to the trusted private voice-preparation process. The logs and metadata may identify only a numeric credential slot, never a key value. Do not put credentials in `remotion-worker.json`, the render request, a source file, an issue, a pull request, or a workflow log.
 
 The worker repository therefore uses these secrets:
 
 - `SOURCE_REPOSITORY`
 - `SOURCE_REPO_TOKEN`
 - `RCLONE_CONFIG_B64`
-- `GEMINI_API_KEY`
+- `GEMINI_API_KEYS_JSON` — preferred credential pool
+- `GEMINI_API_KEY` — optional single-key fallback
 
 ## 5. Submit a render request
 

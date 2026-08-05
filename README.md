@@ -34,7 +34,10 @@ See [`docs/SETUP.md`](docs/SETUP.md). The worker requires these GitHub Actions s
 - `SOURCE_REPOSITORY`
 - `SOURCE_REPO_TOKEN`
 - `RCLONE_CONFIG_B64`
-- `GEMINI_API_KEY` — used only inside the trusted private voice-preparation step
+- `GEMINI_API_KEYS_JSON` — preferred JSON array of Gemini API keys used only inside the trusted private voice-preparation step
+- `GEMINI_API_KEY` — optional single-key fallback for backward compatibility
+
+The private source deterministically spreads jobs across the configured key pool and rotates to another credential when a key is rejected or quota-exhausted. No key value is written to logs or output metadata.
 
 The worker caches the pinned WhisperX 3.8.6 environment and English alignment model. Voice preparation fails rather than returning proportional timing when exact-script forced alignment does not pass its coverage and confidence gates.
 
