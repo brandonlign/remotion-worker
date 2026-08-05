@@ -1,5 +1,6 @@
 {
-  "jobId": "telic-initial-001",
-  "sourceSha": "4b9bac6c4cac3e334deb1e9bf3da04f21e32228b",
-  "revision": 1
+  "jobId": "audio-first-pipeline-validation-20260805",
+  "sourceSha": "6e3f4f63105e52d3bba637b66686fea7794b4f67",
+  "revision": 3,
+  "mode": "render"
 }
