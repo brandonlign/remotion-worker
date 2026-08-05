@@ -1,162 +1,139 @@
-name: Render private Remotion source
+name: Validate Telic controller style mode
 
 on:
   pull_request:
     types: [opened, synchronize, reopened]
     paths:
       - jobs/request.json
+      - .github/workflows/render.yml
 
 permissions:
-  contents: write
-  pull-requests: write
+  contents: read
 
 concurrency:
-  group: remotion-render-${{ github.event.pull_request.number }}
+  group: telic-controller-style-${{ github.event.pull_request.number }}
   cancel-in-progress: true
 
 jobs:
-  render:
+  validate-controller:
     if: >-
       github.event.pull_request.head.repo.full_name == github.repository &&
-      startsWith(github.head_ref, 'render/')
+      github.head_ref == 'render/telic-controller-style-validation'
     runs-on: ubuntu-latest
-    timeout-minutes: 90
+    timeout-minutes: 20
 
     steps:
-      - name: Check out worker
+      - name: Check out validation harness
         uses: actions/checkout@v4
 
-      - name: Set up Node
-        uses: actions/setup-node@v4
-        with:
-          node-version: 22
-
-      - name: Validate render request
-        id: request
-        run: node scripts/validate-job.mjs jobs/request.json
-
-      - name: Check out private source
+      - name: Check out private controller branch
         uses: actions/checkout@v4
         with:
-          repository: ${{ secrets.SOURCE_REPOSITORY }}
-          ref: ${{ steps.request.outputs.source_sha }}
+          repository: brandonlign/remotion-video
+          ref: agent/telic-controller-v3
           token: ${{ secrets.SOURCE_REPO_TOKEN }}
           path: private-source
           persist-credentials: false
           fetch-depth: 1
 
-      - name: Install system tools
-        run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y -qq ffmpeg rclone
-
-      - name: Render and build private review package
-        id: render
-        shell: bash
-        env:
-          JOB_ID: ${{ steps.request.outputs.job_id }}
-          SOURCE_SHA: ${{ steps.request.outputs.source_sha }}
-          ELEVENLABS_API_KEYS_JSON: ${{ secrets.ELEVENLABS_API_KEYS_JSON }}
-          ELEVENLABS_API_KEY: ${{ secrets.ELEVENLABS_API_KEY }}
-          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-          OPENAI_TTS_MODEL: ${{ vars.OPENAI_TTS_MODEL }}
-          OPENAI_TTS_VOICE: ${{ vars.OPENAI_TTS_VOICE }}
-          OPENAI_TTS_INSTRUCTIONS: ${{ vars.OPENAI_TTS_INSTRUCTIONS }}
-        run: |
-          set +e
-          mkdir -p "$RUNNER_TEMP/render-result"
-          bash scripts/run-render.sh \
-            jobs/request.json \
-            private-source \
-            "$RUNNER_TEMP/render-result" \
-            >"$RUNNER_TEMP/private-build.log" 2>&1
-          code=$?
-          cp "$RUNNER_TEMP/private-build.log" "$RUNNER_TEMP/render-result/private-build.log"
-          printf '%s\n' "$code" > "$RUNNER_TEMP/render-result/exit-code.txt"
-          echo "exit_code=$code" >> "$GITHUB_OUTPUT"
-          if [ "$code" -eq 0 ]; then
-            echo "Private render completed; running the autonomous final quality gate."
-          else
-            echo "Private render failed; preserving the private diagnostic package."
-          fi
-          exit 0
-
-      - name: Run autonomous final quality gate
-        id: quality
-        if: always() && steps.render.outputs.exit_code == '0'
-        shell: bash
-        env:
-          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-          OPENAI_QC_MODEL: ${{ vars.OPENAI_QC_MODEL }}
-        run: |
-          set +e
-          node scripts/quality-gate.mjs \
-            "$RUNNER_TEMP/render-result" \
-            private-source/automation/current/job.json \
-            private-source/automation/config.json \
-            private-source/automation/prompts/telic-final-quality-gate.txt \
-            >"$RUNNER_TEMP/private-quality.log" 2>&1
-          code=$?
-          cp "$RUNNER_TEMP/private-quality.log" "$RUNNER_TEMP/render-result/private-quality.log"
-          echo "exit_code=$code" >> "$GITHUB_OUTPUT"
-          if [ "$code" -eq 0 ]; then
-            echo "The autonomous final quality gate passed."
-          else
-            echo "The autonomous final quality gate rejected the render."
-          fi
-          exit 0
-
-      - name: Refresh private checksums
-        if: always()
+      - name: Reconstruct and validate controller package
+        working-directory: private-source
         shell: bash
         run: |
-          if [ -d "$RUNNER_TEMP/render-result" ]; then
-            find "$RUNNER_TEMP/render-result" -type f ! -name checksums.txt -print0 \
-              | sort -z \
-              | xargs -0 sha256sum \
-              > "$RUNNER_TEMP/render-result/checksums.txt"
-          fi
+          set -euo pipefail
+          work="$RUNNER_TEMP/telic-controller-validation"
+          rm -rf "$work"
+          mkdir -p "$work/extracted"
 
-      - name: Deliver render and diagnostics privately to Google Drive
-        id: drive
-        if: always()
-        shell: bash
-        env:
-          RCLONE_CONFIG_B64: ${{ secrets.RCLONE_CONFIG_B64 }}
-          JOB_ID: ${{ steps.request.outputs.job_id }}
-        run: |
-          if bash scripts/upload-drive.sh \
-            "$RUNNER_TEMP/render-result" \
-            "$JOB_ID" \
-            >"$RUNNER_TEMP/private-upload.log" 2>&1; then
-            echo "Private Drive delivery completed."
-          else
-            echo "Private Drive delivery failed."
+          archive_b64="$work/controller.b64"
+          archive="$work/controller.tar.gz"
+          : > "$archive_b64"
+          for chunk in 00 01 02 03; do
+            cat "tools/telic-controller-v3/archive/chunk-$chunk.b64" >> "$archive_b64"
+          done
+          base64 -d "$archive_b64" > "$archive"
+
+          expected="$(sed -n 's/^EXPECTED_SHA256="\([0-9a-f]\{64\}\)"$/\1/p' tools/telic-controller-v3/install-from-repo.sh | head -n1)"
+          actual="$(sha256sum "$archive" | awk '{print $1}')"
+          test "$actual" = "$expected"
+          tar -xzf "$archive" -C "$work/extracted"
+
+          controller="$work/extracted/telic-vm-controller-v3"
+          for override in \
+            src/oauth-callback.mjs \
+            src/authorize-google.mjs \
+            src/recover-now.mjs \
+            prompts/source-stage.txt \
+            prompts/render-stage.txt \
+            prompts/recovery-stage.txt; do
+            mkdir -p "$controller/$(dirname "$override")"
+            cp "tools/telic-controller-v3/overrides/$override" "$controller/$override"
+          done
+
+          bash -n tools/telic-controller-v3/install-from-repo.sh
+          node --check "$controller/src/oauth-callback.mjs"
+          node --check "$controller/src/authorize-google.mjs"
+          node --check "$controller/src/recover-now.mjs"
+          grep -q 'context.route(routePattern, routeHandler)' "$controller/src/authorize-google.mjs"
+          grep -q 'https://www.googleapis.com/auth/drive.readonly' "$controller/src/authorize-google.mjs"
+          if grep -q 'auth/youtube' "$controller/src/authorize-google.mjs"; then
+            echo "YouTube OAuth scope returned unexpectedly." >&2
             exit 1
           fi
 
-      - name: Remove private source checkout
+          grep -q 'Do not create scratch files' "$controller/prompts/source-stage.txt"
+          grep -q 'automation/current/job.json' "$controller/prompts/source-stage.txt"
+          grep -q 'styleMode' "$controller/prompts/source-stage.txt"
+          grep -q 'modular editorial scenes' "$controller/prompts/source-stage.txt"
+          grep -q 'final.mp4' "$controller/prompts/render-stage.txt"
+          grep -q 'publish.json' "$controller/prompts/render-stage.txt"
+          grep -q 'continue from the furthest verified stage' "$controller/prompts/recovery-stage.txt"
+          grep -q 'styleMode' "$controller/prompts/recovery-stage.txt"
+          grep -q 'Submitted immediate connector-safe recovery' "$controller/src/recover-now.mjs"
+          grep -q 'telic-controller-recover' tools/telic-controller-v3/install-from-repo.sh
+          if grep -Eq 'Run the relevant lint|YouTube publication is disabled or delegated|Do not stop because there is no working directory' "$controller/prompts/"*.txt; then
+            echo "A legacy verbose or impossible instruction remains." >&2
+            exit 1
+          fi
+
+          cd "$controller"
+          npm install --no-audit --no-fund
+          npm test
+
+          CONTROLLER="$controller" node --input-type=module <<'NODE'
+          import assert from "node:assert/strict";
+          import {execFileSync} from "node:child_process";
+          import {pathToFileURL} from "node:url";
+          import {chromium} from "playwright-core";
+
+          const moduleUrl = pathToFileURL(`${process.env.CONTROLLER}/src/oauth-callback.mjs`);
+          const {parseOAuthCallbackUrl} = await import(moduleUrl);
+          const redirectUri = "http://127.0.0.1:8787/oauth2callback";
+          const state = "state-123";
+          const callbackUrl = `${redirectUri}?state=${state}&code=one-time-code`;
+          assert.deepEqual(parseOAuthCallbackUrl(callbackUrl, {redirectUri, state}), {code: "one-time-code"});
+
+          const executablePath = execFileSync("bash", ["-lc", "command -v google-chrome || command -v chromium || command -v chromium-browser"], {encoding: "utf8"}).trim();
+          assert.ok(executablePath, "Chrome executable was not found on the worker.");
+          const browser = await chromium.launch({headless: true, executablePath});
+          const context = await browser.newContext();
+          let intercepted = null;
+          await context.route(`${redirectUri}*`, async (route) => {
+            intercepted = route.request().url();
+            await route.fulfill({status: 200, contentType: "text/html; charset=utf-8", body: "<h2>Telic authorization complete</h2>"});
+          });
+          const unrelatedPage = await context.newPage();
+          await unrelatedPage.setContent("<p>original authorization tab</p>");
+          const callbackPage = await context.newPage();
+          await callbackPage.goto(callbackUrl, {waitUntil: "domcontentloaded"});
+          assert.equal(intercepted, callbackUrl);
+          assert.match(await callbackPage.textContent("body"), /Telic authorization complete/);
+          await browser.close();
+          console.log("Cross-tab browser-context OAuth callback interception passed.");
+          NODE
+
+          echo "Controller style-mode contract validated at $(git rev-parse HEAD)."
+
+      - name: Remove private checkout
         if: always()
         run: rm -rf private-source
-
-      - name: Close successful temporary render request
-        if: >-
-          always() &&
-          steps.render.outputs.exit_code == '0' &&
-          steps.quality.outputs.exit_code == '0' &&
-          steps.drive.outcome == 'success'
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: gh pr close "${{ github.event.pull_request.number }}" --delete-branch
-
-      - name: Fail workflow when rendering, quality, or Drive delivery failed
-        if: >-
-          always() &&
-          (
-            steps.render.outputs.exit_code != '0' ||
-            steps.quality.outputs.exit_code != '0' ||
-            steps.drive.outcome != 'success'
-          )
-        run: |
-          echo "The private render, autonomous quality gate, or required Drive delivery failed. Private diagnostics were retained when possible."
-          exit 1
