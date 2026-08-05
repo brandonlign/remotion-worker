@@ -31,6 +31,12 @@ jobs:
         with:
           node-version: 22
 
+      - name: Cache local Kokoro voice model
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/telic-kokoro
+          key: telic-kokoro-v1-int8-${{ runner.os }}-${{ runner.arch }}
+
       - name: Validate render request
         id: request
         run: node scripts/validate-job.mjs jobs/request.json
@@ -48,7 +54,7 @@ jobs:
       - name: Install system tools
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y -qq ffmpeg rclone
+          sudo apt-get install -y -qq ffmpeg rclone python3-venv espeak-ng libsndfile1
 
       - name: Render and build private review package
         id: render
@@ -58,10 +64,9 @@ jobs:
           SOURCE_SHA: ${{ steps.request.outputs.source_sha }}
           ELEVENLABS_API_KEYS_JSON: ${{ secrets.ELEVENLABS_API_KEYS_JSON }}
           ELEVENLABS_API_KEY: ${{ secrets.ELEVENLABS_API_KEY }}
-          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-          OPENAI_TTS_MODEL: ${{ vars.OPENAI_TTS_MODEL }}
-          OPENAI_TTS_VOICE: ${{ vars.OPENAI_TTS_VOICE }}
-          OPENAI_TTS_INSTRUCTIONS: ${{ vars.OPENAI_TTS_INSTRUCTIONS }}
+          LOCAL_TTS_VOICE: am_liam
+          LOCAL_TTS_SPEED: "1.03"
+          KOKORO_CACHE_DIR: ${{ env.HOME }}/.cache/telic-kokoro
         run: |
           set +e
           mkdir -p "$RUNNER_TEMP/render-result"
