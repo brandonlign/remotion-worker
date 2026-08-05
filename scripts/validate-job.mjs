@@ -9,7 +9,7 @@ if (!file) {
 }
 
 const request = JSON.parse(fs.readFileSync(file, "utf8"));
-const allowedKeys = new Set(["jobId", "sourceSha", "revision"]);
+const allowedKeys = new Set(["jobId", "sourceSha", "revision", "mode"]);
 for (const key of Object.keys(request)) {
   if (!allowedKeys.has(key)) {
     throw new Error(`Unsupported request field: ${key}`);
@@ -28,12 +28,17 @@ if (!Number.isInteger(request.revision) || request.revision < 1 || request.revis
   throw new Error("revision must be an integer from 1 through 1000.");
 }
 
+const mode = request.mode ?? "render";
+if (!new Set(["voice-prep", "render"]).has(mode)) {
+  throw new Error("mode must be voice-prep or render.");
+}
+
 const githubOutput = process.env.GITHUB_OUTPUT;
 if (githubOutput) {
   fs.appendFileSync(
     githubOutput,
-    `job_id=${request.jobId}\nsource_sha=${request.sourceSha}\nrevision=${request.revision}\n`,
+    `job_id=${request.jobId}\nsource_sha=${request.sourceSha}\nrevision=${request.revision}\nmode=${mode}\n`,
   );
 }
 
-console.log(`Validated ${path.basename(file)}.`);
+console.log(`Validated ${path.basename(file)} in ${mode} mode.`);

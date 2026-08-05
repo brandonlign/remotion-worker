@@ -77,6 +77,15 @@ fi
 
 bash "$WORKER_ROOT/scripts/create-review-assets.sh" "$FINAL_VIDEO" "$OUTPUT_DIR"
 
+for artifact in \
+  automation/current/alignment.json \
+  automation/current/audio-runtime.json \
+  automation/current/composition.json; do
+  if [ -s "$SOURCE_DIR/$artifact" ]; then
+    cp "$SOURCE_DIR/$artifact" "$OUTPUT_DIR/$(basename "$artifact")"
+  fi
+done
+
 node - "$OUTPUT_DIR/status.json" "$JOB_ID" "$SOURCE_SHA" "$OUTPUT_NAME" <<'NODE'
 const fs = require("node:fs");
 const [outputFile, jobId, sourceSha, outputName] = process.argv.slice(2);
