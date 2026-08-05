@@ -31,6 +31,15 @@ jobs:
         with:
           node-version: 22
 
+      - name: Cache forced-alignment runtime
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/telic-whisperx-3.8.6
+            ~/.cache/torch
+            ~/.cache/huggingface
+          key: telic-whisperx-3.8.6-en-${{ runner.os }}-${{ runner.arch }}-py3
+
       - name: Validate render request
         id: request
         run: node scripts/validate-job.mjs jobs/request.json
@@ -48,7 +57,7 @@ jobs:
       - name: Install system tools
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y -qq ffmpeg rclone
+          sudo apt-get install -y -qq ffmpeg rclone python3-venv
 
       - name: Prepare locked voiceover and timing
         id: voice
@@ -71,7 +80,7 @@ jobs:
           printf '%s\n' "$code" > "$RUNNER_TEMP/render-result/exit-code.txt"
           echo "exit_code=$code" >> "$GITHUB_OUTPUT"
           if [ "$code" -eq 0 ]; then
-            echo "Private voiceover and timing package completed."
+            echo "Private voiceover and exact forced-alignment package completed."
           else
             echo "Private voice preparation failed; preserving diagnostics."
           fi
