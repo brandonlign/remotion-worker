@@ -10,44 +10,16 @@ REQUEST_FILE="$1"
 SOURCE_DIR="$2"
 OUTPUT_DIR="$3"
 WORKER_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-
-if [ ! -f "$REQUEST_FILE" ]; then
-  echo "Voice preparation request file does not exist." >&2
-  exit 66
-fi
-
-mkdir -p "$OUTPUT_DIR"
-SOURCE_DIR="$(cd "$SOURCE_DIR" && pwd)"
-OUTPUT_DIR="$(cd "$OUTPUT_DIR" && pwd)"
-
-if [ ! -f "$SOURCE_DIR/remotion-worker.json" ]; then
-  echo "The private source is missing remotion-worker.json." >&2
-  exit 65
-fi
-
-if [ -z "${JOB_ID:-}" ] || [ -z "${SOURCE_SHA:-}" ]; then
-  echo "JOB_ID and SOURCE_SHA are required." >&2
-  exit 65
-fi
+source "$WORKER_ROOT/scripts/lib/stage-common.sh"
+trap stage_cleanup EXIT
 
 if [ -z "${GEMINI_API_KEYS_JSON:-}" ] && [ -z "${GEMINI_API_KEY:-}" ]; then
-  echo "GEMINI_API_KEYS_JSON or GEMINI_API_KEY is required for private Gemini voice preparation." >&2
-  exit 65
+  stage_fail "GEMINI_API_KEYS_JSON or GEMINI_API_KEY is required for private Gemini voice preparation."
 fi
 
-ACTUAL_SHA="$(git -C "$SOURCE_DIR" rev-parse HEAD)"
-if [ "$ACTUAL_SHA" != "$SOURCE_SHA" ]; then
-  echo "The checked-out private source does not match the requested commit." >&2
-  exit 65
-fi
+prepare_private_source_stage "Voice preparation"
 
-NORMALIZED_CONFIG="$(mktemp)"
-trap 'rm -f "$NORMALIZED_CONFIG"' EXIT
-node "$WORKER_ROOT/scripts/validate-source-config.mjs" \
-  "$SOURCE_DIR/remotion-worker.json" \
-  "$NORMALIZED_CONFIG"
-
-INSTALL_COMMAND="$(node -e 'const fs=require("fs"); const c=JSON.parse(fs.readFileSync(process.argv[1],"utf8")); process.stdout.write(c.installCommand);' "$NORMALIZED_CONFIG")"
+INSTALL_COMMAND="$(source_config_field installCommand)"
 
 WHISPERX_VERSION="3.8.6"
 PYTHON_ABI="$(python3 -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")')"
@@ -133,7 +105,4 @@ fs.writeFileSync(outputFile, `${JSON.stringify({
 }, null, 2)}\n`);
 NODE
 
-find "$OUTPUT_DIR" -type f ! -name checksums.txt -print0 \
-  | sort -z \
-  | xargs -0 sha256sum \
-  > "$OUTPUT_DIR/checksums.txt"
+write_checksums "$OUTPUT_DIR"
