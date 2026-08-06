@@ -4,6 +4,6 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "check": "bash -n scripts/run-render.sh scripts/run-voice-prep.sh scripts/download-drive-audio.sh scripts/create-review-assets.sh scripts/upload-drive.sh && node --check scripts/quality-gate.mjs scripts/deterministic-quality-gate.mjs scripts/create-controller-handoff.mjs scripts/test-controller-handoff.mjs scripts/validate-job.mjs && node scripts/test-controller-handoff.mjs && node scripts/validate-job.mjs jobs/render-request.example.json && node scripts/validate-source-config.mjs examples/remotion-worker.json /tmp/remotion-worker-config.json"
+    "check": "bash -n scripts/*.sh scripts/lib/*.sh && for file in scripts/*.mjs; do node --check \"$file\"; done && node scripts/test-controller-handoff.mjs && node scripts/validate-job.mjs jobs/render-request.example.json && node scripts/validate-source-config.mjs examples/remotion-worker.json /tmp/remotion-worker-config.json"
   }
 }
