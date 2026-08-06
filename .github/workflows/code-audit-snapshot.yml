@@ -1,0 +1,26 @@
+name: Code audit snapshot
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    paths:
+      - .github/workflows/code-audit-snapshot.yml
+
+permissions:
+  contents: read
+
+jobs:
+  snapshot:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Create repository snapshot
+        run: |
+          tar --exclude=.git --exclude=node_modules -czf "$RUNNER_TEMP/repository-snapshot.tar.gz" .
+      - name: Upload audit artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: remotion-worker-code-audit
+          path: ${{ runner.temp }}/repository-snapshot.tar.gz
+          retention-days: 1
+          if-no-files-found: error
