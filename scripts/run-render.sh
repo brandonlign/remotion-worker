@@ -10,61 +10,27 @@ REQUEST_FILE="$1"
 SOURCE_DIR="$2"
 OUTPUT_DIR="$3"
 WORKER_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+source "$WORKER_ROOT/scripts/lib/stage-common.sh"
+trap stage_cleanup EXIT
+prepare_private_source_stage "Render"
 
-if [ ! -f "$REQUEST_FILE" ]; then
-  echo "Render request file does not exist." >&2
-  exit 66
-fi
-
-mkdir -p "$OUTPUT_DIR"
-SOURCE_DIR="$(cd "$SOURCE_DIR" && pwd)"
-OUTPUT_DIR="$(cd "$OUTPUT_DIR" && pwd)"
-
-if [ ! -f "$SOURCE_DIR/remotion-worker.json" ]; then
-  echo "The private source is missing remotion-worker.json." >&2
-  exit 65
-fi
-
-if [ -z "${JOB_ID:-}" ] || [ -z "${SOURCE_SHA:-}" ]; then
-  echo "JOB_ID and SOURCE_SHA are required." >&2
-  exit 65
-fi
-
-ACTUAL_SHA="$(git -C "$SOURCE_DIR" rev-parse HEAD)"
-if [ "$ACTUAL_SHA" != "$SOURCE_SHA" ]; then
-  echo "The checked-out private source does not match the requested commit." >&2
-  exit 65
-fi
-
-NORMALIZED_CONFIG="$(mktemp)"
-trap 'rm -f "$NORMALIZED_CONFIG"' EXIT
-node "$WORKER_ROOT/scripts/validate-source-config.mjs" \
-  "$SOURCE_DIR/remotion-worker.json" \
-  "$NORMALIZED_CONFIG"
-
-json_field() {
-  node -e 'const fs=require("fs"); const value=JSON.parse(fs.readFileSync(process.argv[1],"utf8"))[process.argv[2]]; process.stdout.write(String(value));' "$NORMALIZED_CONFIG" "$1"
-}
-
-ENTRY_POINT="$(json_field entryPoint)"
-COMPOSITION_ID="$(json_field compositionId)"
-OUTPUT_NAME="$(json_field outputName)"
-INSTALL_COMMAND="$(json_field installCommand)"
-PREPARE_COMMAND="$(json_field prepareCommand)"
-CHECK_COMMAND="$(json_field checkCommand)"
-CRF="$(json_field crf)"
+ENTRY_POINT="$(source_config_field entryPoint)"
+COMPOSITION_ID="$(source_config_field compositionId)"
+OUTPUT_NAME="$(source_config_field outputName)"
+INSTALL_COMMAND="$(source_config_field installCommand)"
+PREPARE_COMMAND="$(source_config_field prepareCommand)"
+CHECK_COMMAND="$(source_config_field checkCommand)"
+CRF="$(source_config_field crf)"
 FINAL_VIDEO="$OUTPUT_DIR/${OUTPUT_NAME}.mp4"
 REMOTION_BIN="$SOURCE_DIR/node_modules/.bin/remotion"
 
 cd "$SOURCE_DIR"
-
 bash -o pipefail -c "$INSTALL_COMMAND"
 bash -o pipefail -c "$PREPARE_COMMAND"
 bash -o pipefail -c "$CHECK_COMMAND"
 
 if [ ! -x "$REMOTION_BIN" ]; then
-  echo "The Remotion CLI was not installed by the configured install command." >&2
-  exit 69
+  stage_fail "The Remotion CLI was not installed by the configured install command." 69
 fi
 
 "$REMOTION_BIN" render \
@@ -104,7 +70,4 @@ node "$WORKER_ROOT/scripts/create-controller-handoff.mjs" \
   "$JOB_ID" \
   "$SOURCE_SHA"
 
-find "$OUTPUT_DIR" -type f ! -name checksums.txt -print0 \
-  | sort -z \
-  | xargs -0 sha256sum \
-  > "$OUTPUT_DIR/checksums.txt"
+write_checksums "$OUTPUT_DIR"
