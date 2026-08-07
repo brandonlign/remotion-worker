@@ -1,0 +1,77 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+if [ "$#" -ne 3 ]; then
+  echo "Usage: run-render-sequence.sh <request.json> <private-source-dir> <output-dir>" >&2
+  exit 64
+fi
+
+REQUEST_FILE="$1"
+SOURCE_DIR="$2"
+OUTPUT_ROOT="$3"
+WORKER_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+source "$WORKER_ROOT/scripts/lib/stage-common.sh"
+trap stage_cleanup EXIT
+
+if ! [[ "${SEQUENCE_INDEX:-}" =~ ^[0-9]+$ ]]; then
+  stage_fail "SEQUENCE_INDEX is required for a long-form sequence preview." 64
+fi
+
+prepare_private_source_stage "Long-form sequence preview"
+
+ENTRY_POINT="$(source_config_field entryPoint)"
+COMPOSITION_ID="$(source_config_field compositionId)"
+INSTALL_COMMAND="$(source_config_field installCommand)"
+PREPARE_COMMAND="$(source_config_field prepareCommand)"
+CHECK_COMMAND="$(source_config_field checkCommand)"
+CRF="$(source_config_field crf)"
+REMOTION_BIN="$SOURCE_DIR/node_modules/.bin/remotion"
+VISUAL_PLAN="$SOURCE_DIR/automation/current/visual-plan.json"
+
+cd "$SOURCE_DIR"
+bash -o pipefail -c "$INSTALL_COMMAND"
+bash -o pipefail -c "$PREPARE_COMMAND"
+bash -o pipefail -c "$CHECK_COMMAND"
+
+if [ ! -x "$REMOTION_BIN" ]; then
+  stage_fail "The Remotion CLI was not installed by the configured install command." 69
+fi
+if [ ! -s "$VISUAL_PLAN" ]; then
+  stage_fail "The private source has no visual-plan.json for sequence preview." 65
+fi
+
+RANGE_JSON="$(node "$WORKER_ROOT/scripts/sequence-preview.mjs" "$VISUAL_PLAN" "$SEQUENCE_INDEX")"
+START_FRAME="$(node -e 'const x=JSON.parse(process.argv[1]); process.stdout.write(String(x.startFrame))' "$RANGE_JSON")"
+RENDER_END_FRAME="$(node -e 'const x=JSON.parse(process.argv[1]); process.stdout.write(String(x.renderEndFrame))' "$RANGE_JSON")"
+END_FRAME="$(node -e 'const x=JSON.parse(process.argv[1]); process.stdout.write(String(x.endFrame))' "$RANGE_JSON")"
+PADDED_INDEX="$(printf '%02d' "$SEQUENCE_INDEX")"
+OUTPUT_DIR="$OUTPUT_ROOT/sequence-$PADDED_INDEX"
+PREVIEW_VIDEO="$OUTPUT_DIR/sequence-preview.mp4"
+mkdir -p "$OUTPUT_DIR"
+
+"$REMOTION_BIN" render \
+  "$ENTRY_POINT" \
+  "$COMPOSITION_ID" \
+  "$PREVIEW_VIDEO" \
+  --codec=h264 \
+  --crf="$CRF" \
+  --frames="${START_FRAME}-${RENDER_END_FRAME}" \
+  --log=error
+
+bash "$WORKER_ROOT/scripts/create-review-assets.sh" "$PREVIEW_VIDEO" "$OUTPUT_DIR"
+
+node - "$OUTPUT_DIR/status.json" "$JOB_ID" "$SOURCE_SHA" "$SEQUENCE_INDEX" "$START_FRAME" "$END_FRAME" <<'NODE'
+const fs = require("node:fs");
+const [outputFile, jobId, sourceSha, sequenceIndex, startFrame, endFrame] = process.argv.slice(2);
+fs.writeFileSync(outputFile, `${JSON.stringify({
+  status: "sequence-preview-complete",
+  jobId,
+  sourceSha,
+  sequenceIndex: Number(sequenceIndex),
+  startFrame: Number(startFrame),
+  endFrame: Number(endFrame),
+  completedAt: new Date().toISOString(),
+}, null, 2)}\n`);
+NODE
+
+write_checksums "$OUTPUT_DIR"
