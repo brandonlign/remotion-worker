@@ -16,12 +16,14 @@ prepare_private_source_stage "Render"
 
 ENTRY_POINT="$(source_config_field entryPoint)"
 COMPOSITION_ID="$(source_config_field compositionId)"
+THUMBNAIL_COMPOSITION_ID="$(source_config_field thumbnailCompositionId)"
 OUTPUT_NAME="$(source_config_field outputName)"
 INSTALL_COMMAND="$(source_config_field installCommand)"
 PREPARE_COMMAND="$(source_config_field prepareCommand)"
 CHECK_COMMAND="$(source_config_field checkCommand)"
 CRF="$(source_config_field crf)"
 FINAL_VIDEO="$OUTPUT_DIR/${OUTPUT_NAME}.mp4"
+THUMBNAIL_FILE="$OUTPUT_DIR/thumbnail.png"
 REMOTION_BIN="$SOURCE_DIR/node_modules/.bin/remotion"
 
 cd "$SOURCE_DIR"
@@ -41,6 +43,15 @@ fi
   --crf="$CRF" \
   --log=error
 
+if [ -n "$THUMBNAIL_COMPOSITION_ID" ]; then
+  "$REMOTION_BIN" still \
+    "$ENTRY_POINT" \
+    "$THUMBNAIL_COMPOSITION_ID" \
+    "$THUMBNAIL_FILE" \
+    --frame=0 \
+    --log=error
+fi
+
 bash "$WORKER_ROOT/scripts/create-review-assets.sh" "$FINAL_VIDEO" "$OUTPUT_DIR"
 
 for artifact in \
@@ -52,14 +63,15 @@ for artifact in \
   fi
 done
 
-node - "$OUTPUT_DIR/status.json" "$JOB_ID" "$SOURCE_SHA" "$OUTPUT_NAME" <<'NODE'
+node - "$OUTPUT_DIR/status.json" "$JOB_ID" "$SOURCE_SHA" "$OUTPUT_NAME" "$THUMBNAIL_COMPOSITION_ID" <<'NODE'
 const fs = require("node:fs");
-const [outputFile, jobId, sourceSha, outputName] = process.argv.slice(2);
+const [outputFile, jobId, sourceSha, outputName, thumbnailCompositionId] = process.argv.slice(2);
 fs.writeFileSync(outputFile, `${JSON.stringify({
   status: "complete",
   jobId,
   sourceSha,
   outputName,
+  thumbnailCompositionId: thumbnailCompositionId || null,
   completedAt: new Date().toISOString(),
 }, null, 2)}\n`);
 NODE

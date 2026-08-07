@@ -13,6 +13,7 @@ const config = JSON.parse(fs.readFileSync(inputFile, "utf8"));
 const allowedKeys = new Set([
   "entryPoint",
   "compositionId",
+  "thumbnailCompositionId",
   "outputName",
   "installCommand",
   "prepareCommand",
@@ -46,9 +47,16 @@ const safeCommand = (value, name, fallback) => {
   return command;
 };
 
-if (typeof config.compositionId !== "string" || !/^[A-Za-z0-9_-]{1,100}$/.test(config.compositionId)) {
-  throw new Error("compositionId contains unsupported characters.");
-}
+const safeCompositionId = (value, name, {optional = false} = {}) => {
+  if (optional && (value == null || value === "")) return "";
+  if (typeof value !== "string" || !/^[A-Za-z0-9_-]{1,100}$/.test(value)) {
+    throw new Error(`${name} contains unsupported characters.`);
+  }
+  return value;
+};
+
+const compositionId = safeCompositionId(config.compositionId, "compositionId");
+const thumbnailCompositionId = safeCompositionId(config.thumbnailCompositionId, "thumbnailCompositionId", {optional: true});
 
 if (typeof config.outputName !== "string" || !/^[A-Za-z0-9][A-Za-z0-9_-]{0,79}$/.test(config.outputName)) {
   throw new Error("outputName contains unsupported characters.");
@@ -61,7 +69,8 @@ if (!Number.isInteger(crf) || crf < 1 || crf > 51) {
 
 const normalized = {
   entryPoint: safeRelativePath(config.entryPoint, "entryPoint"),
-  compositionId: config.compositionId,
+  compositionId,
+  thumbnailCompositionId,
   outputName: config.outputName,
   installCommand: safeCommand(config.installCommand, "installCommand", "npm ci --no-audit --no-fund"),
   prepareCommand: safeCommand(config.prepareCommand, "prepareCommand", "true"),
