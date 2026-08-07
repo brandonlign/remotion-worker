@@ -8,7 +8,7 @@ fi
 
 REQUEST_FILE="$1"
 SOURCE_DIR="$2"
-OUTPUT_ROOT="$3"
+OUTPUT_DIR="$3"
 WORKER_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 source "$WORKER_ROOT/scripts/lib/stage-common.sh"
 trap stage_cleanup EXIT
@@ -18,6 +18,7 @@ if ! [[ "${SEQUENCE_INDEX:-}" =~ ^[0-9]+$ ]]; then
 fi
 
 prepare_private_source_stage "Long-form sequence preview"
+OUTPUT_ROOT="$OUTPUT_DIR"
 
 ENTRY_POINT="$(source_config_field entryPoint)"
 COMPOSITION_ID="$(source_config_field compositionId)"
