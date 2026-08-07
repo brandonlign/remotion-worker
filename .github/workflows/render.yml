@@ -89,7 +89,7 @@ jobs:
 
       - name: Restore locked voiceover and timing
         id: audio_restore
-        if: steps.request.outputs.mode == 'render'
+        if: steps.request.outputs.mode == 'render' || steps.request.outputs.mode == 'render-sequence'
         shell: bash
         env:
           RCLONE_CONFIG_B64: ${{ secrets.RCLONE_CONFIG_B64 }}
@@ -105,9 +105,38 @@ jobs:
           cp "$RUNNER_TEMP/private-audio-restore.log" "$RUNNER_TEMP/render-result/private-audio-restore.log"
           echo "exit_code=$code" >> "$GITHUB_OUTPUT"
           if [ "$code" -eq 0 ]; then
-            echo "Restored the locked voice package for custom composition rendering."
+            echo "Restored the locked voice package for private rendering."
           else
             echo "Could not restore the locked voice package."
+          fi
+          exit 0
+
+      - name: Render one private long-form sequence preview
+        id: sequence
+        if: >-
+          steps.request.outputs.mode == 'render-sequence' &&
+          steps.audio_restore.outputs.exit_code == '0'
+        shell: bash
+        env:
+          JOB_ID: ${{ steps.request.outputs.job_id }}
+          SOURCE_SHA: ${{ steps.request.outputs.source_sha }}
+          SEQUENCE_INDEX: ${{ steps.request.outputs.sequence_index }}
+        run: |
+          set +e
+          bash scripts/run-render-sequence.sh \
+            jobs/request.json \
+            private-source \
+            "$RUNNER_TEMP/render-result" \
+            >"$RUNNER_TEMP/private-sequence.log" 2>&1
+          code=$?
+          mkdir -p "$RUNNER_TEMP/render-result"
+          cp "$RUNNER_TEMP/private-sequence.log" "$RUNNER_TEMP/render-result/private-sequence.log"
+          printf '%s\n' "$code" > "$RUNNER_TEMP/render-result/sequence-exit-code.txt"
+          echo "exit_code=$code" >> "$GITHUB_OUTPUT"
+          if [ "$code" -eq 0 ]; then
+            echo "Private long-form sequence preview completed."
+          else
+            echo "Private long-form sequence preview failed; preserving diagnostics."
           fi
           exit 0
 
@@ -209,6 +238,14 @@ jobs:
               (steps.voice.outputs.exit_code != '0' || steps.drive.outcome != 'success')
             ) ||
             (
+              steps.request.outputs.mode == 'render-sequence' &&
+              (
+                steps.audio_restore.outputs.exit_code != '0' ||
+                steps.sequence.outputs.exit_code != '0' ||
+                steps.drive.outcome != 'success'
+              )
+            ) ||
+            (
               steps.request.outputs.mode == 'render' &&
               (
                 steps.audio_restore.outputs.exit_code != '0' ||
@@ -219,5 +256,5 @@ jobs:
             )
           )
         run: |
-          echo "The requested private voice or custom render stage failed. Private diagnostics were retained when possible."
+          echo "The requested private voice, sequence preview, or full render stage failed. Private diagnostics were retained when possible."
           exit 1
