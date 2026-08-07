@@ -4,6 +4,6 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "check": "bash -n scripts/*.sh scripts/lib/*.sh && for file in scripts/*.mjs; do node --check \"$file\"; done && node scripts/test-controller-handoff.mjs && node scripts/validate-job.mjs jobs/render-request.example.json && node scripts/validate-source-config.mjs examples/remotion-worker.json /tmp/remotion-worker-config.json"
+    "check": "bash -n scripts/*.sh scripts/lib/*.sh && for file in scripts/*.mjs; do node --check \"$file\"; done && node scripts/test-controller-handoff.mjs && node scripts/test-quality-policy.mjs && node scripts/validate-job.mjs jobs/render-request.example.json && node scripts/validate-source-config.mjs examples/remotion-worker.json /tmp/remotion-worker-config.json"
   }
 }
