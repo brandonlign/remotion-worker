@@ -4,6 +4,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import process from "node:process";
 import {spawn} from "node:child_process";
+import {resolveQualityPolicy} from "./quality-policy.mjs";
 
 const readJson = async (filePath) => JSON.parse(await fs.readFile(filePath, "utf8"));
 
@@ -67,17 +68,15 @@ const main = async () => {
     readJson(path.resolve(configArg)),
     readJson(path.join(resultDir, "media-metadata.json")),
   ]);
-
-  const format = job.format ?? "short";
-  if (format !== "short" && format !== "long") throw new Error(`Unsupported Telic format: ${format}`);
-  const quality = format === "long" ? config.longForm?.quality : config.quality;
-  if (!quality || typeof quality !== "object") throw new Error(`The private config has no ${format} quality policy.`);
-  const expectedWidth = format === "long" ? 1920 : 1080;
-  const expectedHeight = format === "long" ? 1080 : 1920;
-  const minimumDurationSeconds = format === "long"
-    ? Number(config.longForm?.minimumDurationSeconds ?? 240)
-    : 10;
-  const maximumDurationSeconds = Number(quality.maximumDurationSeconds);
+  const {
+    format,
+    quality,
+    expectedWidth,
+    expectedHeight,
+    minimumDurationSeconds,
+    maximumDurationSeconds,
+    maximumFrames,
+  } = resolveQualityPolicy(job, config);
 
   const videoPath = path.join(resultDir, `${status.outputName}.mp4`);
   const stat = await fs.stat(videoPath);
@@ -135,7 +134,7 @@ const main = async () => {
 
   const sampledFrames = await listSampledFrames(
     path.join(resultDir, "keyframes"),
-    Number(quality.maximumFrames) || (format === "long" ? 48 : 20),
+    maximumFrames,
   );
   const passed = issues.length === 0;
   const report = {
