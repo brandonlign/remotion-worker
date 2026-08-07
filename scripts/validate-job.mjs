@@ -9,7 +9,7 @@ if (!file) {
 }
 
 const request = JSON.parse(fs.readFileSync(file, "utf8"));
-const allowedKeys = new Set(["jobId", "sourceSha", "revision", "mode"]);
+const allowedKeys = new Set(["jobId", "sourceSha", "revision", "mode", "sequenceIndex"]);
 for (const key of Object.keys(request)) {
   if (!allowedKeys.has(key)) {
     throw new Error(`Unsupported request field: ${key}`);
@@ -29,15 +29,25 @@ if (!Number.isInteger(request.revision) || request.revision < 1 || request.revis
 }
 
 const mode = request.mode ?? "render";
-if (!new Set(["voice-prep", "render"]).has(mode)) {
-  throw new Error("mode must be voice-prep or render.");
+if (!new Set(["voice-prep", "render-sequence", "render"]).has(mode)) {
+  throw new Error("mode must be voice-prep, render-sequence, or render.");
+}
+
+let sequenceIndex = "";
+if (mode === "render-sequence") {
+  if (!Number.isInteger(request.sequenceIndex) || request.sequenceIndex < 0 || request.sequenceIndex > 13) {
+    throw new Error("render-sequence requires sequenceIndex from 0 through 13.");
+  }
+  sequenceIndex = String(request.sequenceIndex);
+} else if (request.sequenceIndex != null) {
+  throw new Error("sequenceIndex is only valid for render-sequence requests.");
 }
 
 const githubOutput = process.env.GITHUB_OUTPUT;
 if (githubOutput) {
   fs.appendFileSync(
     githubOutput,
-    `job_id=${request.jobId}\nsource_sha=${request.sourceSha}\nrevision=${request.revision}\nmode=${mode}\n`,
+    `job_id=${request.jobId}\nsource_sha=${request.sourceSha}\nrevision=${request.revision}\nmode=${mode}\nsequence_index=${sequenceIndex}\n`,
   );
 }
 
