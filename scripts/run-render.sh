@@ -53,6 +53,10 @@ if [ -n "$THUMBNAIL_COMPOSITION_ID" ]; then
 fi
 
 bash "$WORKER_ROOT/scripts/create-review-assets.sh" "$FINAL_VIDEO" "$OUTPUT_DIR"
+node "$WORKER_ROOT/scripts/create-review-moments.mjs" \
+  "$FINAL_VIDEO" \
+  "$SOURCE_DIR/automation/current/composition.json" \
+  "$OUTPUT_DIR/review-moments"
 
 for artifact in \
   automation/current/alignment.json \
