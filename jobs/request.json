@@ -1,5 +1,6 @@
 {
-  "jobId": "telic-initial-001",
-  "sourceSha": "4b9bac6c4cac3e334deb1e9bf3da04f21e32228b",
-  "revision": 1
+  "jobId": "telic-web-202608060041-bbf9f5",
+  "sourceSha": "f80b1df9029504bb4556056bb16721b0764870cd",
+  "revision": 1,
+  "mode": "voice-prep"
 }
