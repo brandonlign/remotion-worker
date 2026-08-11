@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 import assert from "node:assert/strict";
-import {resolveSequencePreview} from "./sequence-preview.mjs";
+import {MAX_SEQUENCE_INDEX, resolveSequencePreview} from "./sequence-preview.mjs";
 
 const plan = {
   sequences: [
@@ -24,8 +24,13 @@ assert.deepEqual(resolveSequencePreview(plan, 1), {
   renderEndFrame: 649,
   frameCount: 370,
 });
+assert.equal(MAX_SEQUENCE_INDEX, 39);
 assert.throws(() => resolveSequencePreview(plan, 2), /outside/);
-assert.throws(() => resolveSequencePreview(plan, -1), /0 through 13/);
+assert.throws(() => resolveSequencePreview(plan, -1), /0 through 39/);
+assert.throws(() => resolveSequencePreview(plan, 40), /0 through 39/);
 assert.throws(() => resolveSequencePreview({sequences: [{startFrame: 5, endFrame: 5}]}, 0), /invalid frame range/);
 
-console.log("Long-form sequence preview range tests passed.");
+const many = {sequences: Array.from({length: 40}, (_, index) => ({startFrame: index * 900, endFrame: (index + 1) * 900}))};
+assert.equal(resolveSequencePreview(many, 39).sequenceIndex, 39);
+
+console.log("Dynamic long-form sequence preview range tests passed.");
