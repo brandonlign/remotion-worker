@@ -1,0 +1,57 @@
+name: Validate private Telic controller install
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    paths:
+      - jobs/controller-check.json
+
+permissions:
+  contents: read
+
+concurrency:
+  group: telic-controller-check-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  controller-check:
+    if: >-
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      startsWith(github.head_ref, 'controller-check/')
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Check out worker
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Validate controller request
+        id: request
+        run: node scripts/validate-controller-check.mjs jobs/controller-check.json
+
+      - name: Check out exact private source
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ secrets.SOURCE_REPOSITORY }}
+          ref: ${{ steps.request.outputs.source_sha }}
+          token: ${{ secrets.SOURCE_REPO_TOKEN }}
+          path: private-source
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: Validate generated controller in isolation
+        shell: bash
+        run: |
+          chmod +x private-source/tools/telic-controller-v3/worker-controller-validation.sh
+          bash private-source/tools/telic-controller-v3/worker-controller-validation.sh \
+            "$GITHUB_WORKSPACE/private-source" \
+            "${{ steps.request.outputs.source_sha }}"
+
+      - name: Remove private source checkout
+        if: always()
+        run: rm -rf private-source
