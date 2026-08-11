@@ -23,12 +23,15 @@ const frozenTwelve = {
   ...composition,
   durationInFrames: 720,
   reviewMoments: Array.from({length: 12}, (_, index) => ({
-    id: `frozen-${index + 1}`,
     frame: index * 50,
+    sequenceId: `sequence-${(index % 4) + 1}`,
     expectation: `Frozen semantic review expectation ${index + 1} remains exact.`,
   })),
 };
-assert.equal(resolveReviewMoments(frozenTwelve).length, 12);
+const frozenTwelveMoments = resolveReviewMoments(frozenTwelve);
+assert.equal(frozenTwelveMoments.length, 12);
+assert.equal(frozenTwelveMoments[0].id, "sequence-1-0");
+assert.equal(frozenTwelveMoments[1].id, "sequence-2-50");
 
 assert.throws(
   () => resolveReviewMoments({...composition, reviewMoments: composition.reviewMoments.slice(0, 2)}),
