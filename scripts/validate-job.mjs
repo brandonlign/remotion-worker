@@ -35,8 +35,8 @@ if (!new Set(["voice-prep", "render-sequence", "render"]).has(mode)) {
 
 let sequenceIndex = "";
 if (mode === "render-sequence") {
-  if (!Number.isInteger(request.sequenceIndex) || request.sequenceIndex < 0 || request.sequenceIndex > 13) {
-    throw new Error("render-sequence requires sequenceIndex from 0 through 13.");
+  if (!Number.isInteger(request.sequenceIndex) || request.sequenceIndex < 0 || request.sequenceIndex > 39) {
+    throw new Error("render-sequence requires sequenceIndex from 0 through 39.");
   }
   sequenceIndex = String(request.sequenceIndex);
 } else if (request.sequenceIndex != null) {

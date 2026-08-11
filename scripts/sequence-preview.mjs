@@ -4,9 +4,11 @@ import fs from "node:fs";
 import path from "node:path";
 import {fileURLToPath} from "node:url";
 
+export const MAX_SEQUENCE_INDEX = 39;
+
 export const resolveSequencePreview = (visualPlan, sequenceIndex) => {
-  if (!Number.isInteger(sequenceIndex) || sequenceIndex < 0 || sequenceIndex > 13) {
-    throw new Error("sequenceIndex must be an integer from 0 through 13.");
+  if (!Number.isInteger(sequenceIndex) || sequenceIndex < 0 || sequenceIndex > MAX_SEQUENCE_INDEX) {
+    throw new Error(`sequenceIndex must be an integer from 0 through ${MAX_SEQUENCE_INDEX}.`);
   }
   if (!Array.isArray(visualPlan?.sequences) || visualPlan.sequences.length === 0) {
     throw new Error("visual-plan.json has no long-form sequences.");
