@@ -11,8 +11,8 @@ const ID_PATTERN = /^[a-z0-9][a-z0-9-]{1,63}$/;
 export const resolveReviewMoments = (composition) => {
   const moments = composition?.reviewMoments;
   if (moments == null) return [];
-  if (!Array.isArray(moments) || moments.length < 3 || moments.length > 8) {
-    throw new Error("Semantic review moments must contain three to eight entries.");
+  if (!Array.isArray(moments) || moments.length < 3 || moments.length > 16) {
+    throw new Error("Semantic review moments must contain three to sixteen entries.");
   }
   const fps = Number(composition?.fps);
   const duration = Number(composition?.durationInFrames);
