@@ -7,6 +7,10 @@ import {fileURLToPath} from "node:url";
 const SHA256_PATTERN = /^[0-9a-f]{64}$/;
 
 const readJson = async (filePath) => JSON.parse(await fs.readFile(filePath, "utf8"));
+const readJsonOptional = async (filePath) => {
+  try { return await readJson(filePath); }
+  catch (error) { if (error?.code === "ENOENT") return null; throw error; }
+};
 const stable = (value) => {
   if (Array.isArray(value)) return value.map(stable);
   if (!value || typeof value !== "object") return value;
@@ -16,26 +20,34 @@ const fingerprint = (value) => JSON.stringify(stable(value));
 const sha256File = async (filePath) => crypto.createHash("sha256").update(await fs.readFile(filePath)).digest("hex");
 
 export const verifyRestoredAudio = async ({sourceRuntimePath, driveRuntimePath, audioPath}) => {
-  const driveRuntime = await readJson(driveRuntimePath);
-  if (driveRuntime?.format !== "long") return {format: "short", runtime: driveRuntime};
+  const [sourceRuntime, driveRuntime] = await Promise.all([
+    readJsonOptional(sourceRuntimePath),
+    readJson(driveRuntimePath),
+  ]);
 
-  let sourceRuntime;
-  try {
-    sourceRuntime = await readJson(sourceRuntimePath);
-  } catch (error) {
-    throw new Error(`Committed long-form audio runtime is unavailable: ${error instanceof Error ? error.message : String(error)}`);
-  }
-  if (sourceRuntime?.format !== "long") throw new Error("Committed source runtime is not long form while Drive runtime is long form.");
-  if (sourceRuntime.jobId !== driveRuntime.jobId) throw new Error("Committed and Drive long-form audio runtimes have different job IDs.");
-  if (fingerprint(sourceRuntime) !== fingerprint(driveRuntime)) {
-    throw new Error("Drive long-form audio-runtime.json drifted from the committed frozen source runtime.");
+  // The checked-out private source is authoritative for format. A committed
+  // long-form runtime may never be downgraded into the legacy Short restore path
+  // merely because the Drive copy is malformed or has lost its format field.
+  if (sourceRuntime?.format === "long") {
+    if (driveRuntime?.format !== "long") {
+      throw new Error("Drive audio runtime attempted to downgrade a committed long-form runtime.");
+    }
+    if (sourceRuntime.jobId !== driveRuntime.jobId) throw new Error("Committed and Drive long-form audio runtimes have different job IDs.");
+    if (fingerprint(sourceRuntime) !== fingerprint(driveRuntime)) {
+      throw new Error("Drive long-form audio-runtime.json drifted from the committed frozen source runtime.");
+    }
+
+    const expected = String(sourceRuntime.voiceoverSha256 ?? "").trim().toLowerCase();
+    if (!SHA256_PATTERN.test(expected)) throw new Error("Committed long-form runtime has no valid voiceoverSha256 lock.");
+    const actual = await sha256File(audioPath);
+    if (actual !== expected) throw new Error("Restored long-form voiceover.mp3 does not match the committed runtime hash.");
+    return {format: "long", runtime: sourceRuntime, voiceoverSha256: actual};
   }
 
-  const expected = String(sourceRuntime.voiceoverSha256 ?? "").trim().toLowerCase();
-  if (!SHA256_PATTERN.test(expected)) throw new Error("Committed long-form runtime has no valid voiceoverSha256 lock.");
-  const actual = await sha256File(audioPath);
-  if (actual !== expected) throw new Error("Restored long-form voiceover.mp3 does not match the committed runtime hash.");
-  return {format: "long", runtime: sourceRuntime, voiceoverSha256: actual};
+  if (driveRuntime?.format === "long") {
+    throw new Error("Drive runtime is long form but the committed source has no authoritative long-form runtime.");
+  }
+  return {format: "short", runtime: driveRuntime};
 };
 
 const isMain = process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url);
