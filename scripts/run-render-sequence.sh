@@ -29,6 +29,14 @@ CRF="$(source_config_field crf)"
 REMOTION_BIN="$SOURCE_DIR/node_modules/.bin/remotion"
 VISUAL_PLAN="$SOURCE_DIR/automation/current/visual-plan.json"
 
+node "$WORKER_ROOT/scripts/validate-private-render-contract.mjs" \
+  "$SOURCE_DIR" \
+  render-sequence \
+  "$COMPOSITION_ID" \
+  "" \
+  "$PREPARE_COMMAND" \
+  "$CHECK_COMMAND"
+
 cd "$SOURCE_DIR"
 bash -o pipefail -c "$INSTALL_COMMAND"
 bash -o pipefail -c "$PREPARE_COMMAND"
