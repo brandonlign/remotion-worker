@@ -19,9 +19,20 @@ assert.equal(moments[0].timestampSeconds, 0.6);
 assert.equal(moments[1].timestampSeconds, 5);
 assert.deepEqual(resolveReviewMoments({fps: 30, durationInFrames: 300}), []);
 
+const frozenTwelve = {
+  ...composition,
+  durationInFrames: 720,
+  reviewMoments: Array.from({length: 12}, (_, index) => ({
+    id: `frozen-${index + 1}`,
+    frame: index * 50,
+    expectation: `Frozen semantic review expectation ${index + 1} remains exact.`,
+  })),
+};
+assert.equal(resolveReviewMoments(frozenTwelve).length, 12);
+
 assert.throws(
   () => resolveReviewMoments({...composition, reviewMoments: composition.reviewMoments.slice(0, 2)}),
-  /three to eight/,
+  /three to sixteen/,
 );
 assert.throws(
   () => resolveReviewMoments({...composition, reviewMoments: [composition.reviewMoments[0], composition.reviewMoments[0], composition.reviewMoments[2]]}),
