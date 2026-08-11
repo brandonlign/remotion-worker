@@ -23,19 +23,26 @@ export const resolveReviewMoments = (composition) => {
   const ids = new Set();
   return moments.map((moment, index) => {
     if (!moment || typeof moment !== "object") throw new Error(`Review moment ${index + 1} is invalid.`);
-    if (typeof moment.id !== "string" || !ID_PATTERN.test(moment.id)) {
+    if (!Number.isInteger(moment.frame) || moment.frame < 0 || moment.frame >= duration) {
+      throw new Error(`Review moment ${index + 1} has an invalid frame.`);
+    }
+    if (
+      moment.sequenceId !== undefined &&
+      (typeof moment.sequenceId !== "string" || !ID_PATTERN.test(moment.sequenceId))
+    ) {
+      throw new Error(`Review moment ${index + 1} has an invalid sequenceId.`);
+    }
+    const id = moment.id ?? `${moment.sequenceId ?? "review"}-${moment.frame}`;
+    if (typeof id !== "string" || !ID_PATTERN.test(id)) {
       throw new Error(`Review moment ${index + 1} has an invalid id.`);
     }
-    if (ids.has(moment.id)) throw new Error(`Duplicate review moment id: ${moment.id}`);
-    ids.add(moment.id);
-    if (!Number.isInteger(moment.frame) || moment.frame < 0 || moment.frame >= duration) {
-      throw new Error(`Review moment ${moment.id} has an invalid frame.`);
-    }
+    if (ids.has(id)) throw new Error(`Duplicate review moment id: ${id}`);
+    ids.add(id);
     if (typeof moment.expectation !== "string" || moment.expectation.trim().length < 12) {
-      throw new Error(`Review moment ${moment.id} needs a specific expectation.`);
+      throw new Error(`Review moment ${id} needs a specific expectation.`);
     }
     return {
-      id: moment.id,
+      id,
       frame: moment.frame,
       timestampSeconds: moment.frame / fps,
       expectation: moment.expectation.trim(),
