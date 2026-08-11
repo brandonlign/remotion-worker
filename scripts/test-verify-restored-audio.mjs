@@ -39,6 +39,21 @@ try {
     /drifted from the committed frozen source runtime/,
   );
 
+  // Drive metadata may never downgrade an authoritative committed long runtime
+  // into the legacy Short restore path by dropping or changing format.
+  const noDriveFormat = {...runtime};
+  delete noDriveFormat.format;
+  await fs.writeFile(driveRuntimePath, `${JSON.stringify(noDriveFormat, null, 2)}\n`);
+  await assert.rejects(
+    verifyRestoredAudio({sourceRuntimePath, driveRuntimePath, audioPath}),
+    /attempted to downgrade a committed long-form runtime/,
+  );
+  await fs.writeFile(driveRuntimePath, `${JSON.stringify({...runtime, format: "short"}, null, 2)}\n`);
+  await assert.rejects(
+    verifyRestoredAudio({sourceRuntimePath, driveRuntimePath, audioPath}),
+    /attempted to downgrade a committed long-form runtime/,
+  );
+
   await fs.writeFile(driveRuntimePath, `${JSON.stringify(runtime, null, 2)}\n`);
   await fs.writeFile(audioPath, Buffer.from("different voice bytes"));
   await assert.rejects(
@@ -46,6 +61,7 @@ try {
     /does not match the committed runtime hash/,
   );
 
+  await fs.writeFile(audioPath, bytes);
   const noHash = {...runtime};
   delete noHash.voiceoverSha256;
   await fs.writeFile(sourceRuntimePath, `${JSON.stringify(noHash, null, 2)}\n`);
@@ -55,9 +71,18 @@ try {
     /no valid voiceoverSha256 lock/,
   );
 
+  // Conversely, a Drive long-form package must never be accepted when the
+  // checked-out source has no authoritative long runtime.
+  await fs.rm(sourceRuntimePath, {force: true});
+  await fs.writeFile(driveRuntimePath, `${JSON.stringify(runtime, null, 2)}\n`);
+  await assert.rejects(
+    verifyRestoredAudio({sourceRuntimePath, driveRuntimePath, audioPath}),
+    /committed source has no authoritative long-form runtime/,
+  );
+
   const shortDrive = {schemaVersion: 2, format: "short", jobId: "short"};
   await fs.writeFile(driveRuntimePath, `${JSON.stringify(shortDrive)}\n`);
-  const shortResult = await verifyRestoredAudio({sourceRuntimePath: path.join(temp, "missing.json"), driveRuntimePath, audioPath});
+  const shortResult = await verifyRestoredAudio({sourceRuntimePath, driveRuntimePath, audioPath});
   assert.equal(shortResult.format, "short");
   assert.deepEqual(shortResult.runtime, shortDrive);
 } finally {
