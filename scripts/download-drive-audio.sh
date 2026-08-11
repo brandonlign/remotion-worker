@@ -17,9 +17,24 @@ if [ ! -d "$SOURCE_DIR" ]; then
 fi
 validate_job_id
 prepare_rclone_config "The Drive credential is not configured."
-use_telic_renders_root
 
-mkdir -p "$SOURCE_DIR/public/automation" "$SOURCE_DIR/automation/current"
+mkdir -p \
+  "$SOURCE_DIR/public/automation" \
+  "$SOURCE_DIR/public/assets/current" \
+  "$SOURCE_DIR/automation/current"
+
+rclone copyto \
+  "gdrive:Telic Production/MUSIC/02_Curious_Mechanism.mp3" \
+  "$SOURCE_DIR/public/assets/current/curious-mechanism.mp3" \
+  --config "$RCLONE_CONFIG_FILE" \
+  --stats 0 \
+  --log-level ERROR
+
+if [ ! -s "$SOURCE_DIR/public/assets/current/curious-mechanism.mp3" ]; then
+  rclone_fail "The approved Telic music bed could not be restored."
+fi
+
+use_telic_renders_root
 
 copy_voice_artifact() {
   local name="$1"
