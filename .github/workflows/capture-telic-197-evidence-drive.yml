@@ -1,0 +1,110 @@
+name: Capture Telic 197 evidence to Drive
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    paths:
+      - jobs/capture-telic-197-evidence-drive.json
+      - .github/workflows/capture-telic-197-evidence-drive.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: telic-197-evidence-drive-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  capture-drive:
+    if: github.event.pull_request.head.repo.full_name == github.repository && github.head_ref == 'repair/telic-197-window07-08-20260812'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - id: request
+        name: Validate request
+        shell: bash
+        run: |
+          set -euo pipefail
+          node <<'NODE'
+          const fs = require('fs');
+          const value = JSON.parse(fs.readFileSync('jobs/capture-telic-197-evidence-drive.json', 'utf8'));
+          if (value.jobId !== 'telic-web-202608111952-159353') throw new Error('unexpected jobId');
+          if (!/^[a-f0-9]{40}$/.test(String(value.sourceSha || ''))) throw new Error('invalid sourceSha');
+          fs.appendFileSync(process.env.GITHUB_OUTPUT, `job_id=${value.jobId}\nsource_sha=${value.sourceSha}\n`);
+          NODE
+      - name: Verify exact private source head
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ secrets.SOURCE_REPOSITORY }}
+          ref: agent/${{ steps.request.outputs.job_id }}
+          token: ${{ secrets.SOURCE_REPO_TOKEN }}
+          path: private-source
+          persist-credentials: false
+          fetch-depth: 1
+      - name: Refuse stale source
+        run: |
+          set -euo pipefail
+          [[ "$(git -C private-source rev-parse HEAD)" == "${{ steps.request.outputs.source_sha }}" ]] || exit 75
+      - name: Capture verified C602 Service Menu passage
+        shell: bash
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/capture"
+          mkdir -p "$root"
+          npm install --silent --no-save --prefix "$root" puppeteer-core@24
+          chrome="$(command -v google-chrome || command -v chromium || command -v chromium-browser || true)"
+          [[ -n "$chrome" ]]
+          out="$root/c602-service-menu.png"
+          CAPTURE_ROOT="$root" CHROME_BIN="$chrome" OUT_PATH="$out" node <<'NODE'
+          const path = require('path');
+          const puppeteer = require(path.join(process.env.CAPTURE_ROOT, 'node_modules', 'puppeteer-core'));
+          (async () => {
+            const browser = await puppeteer.launch({executablePath: process.env.CHROME_BIN, headless: true, args: ['--no-sandbox','--disable-dev-shm-usage','--disable-http2']});
+            try {
+              const page = await browser.newPage();
+              await page.setViewport({width:1440,height:1700,deviceScaleFactor:2});
+              await page.setUserAgent('Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/151 Safari/537.36');
+              await page.goto('https://www.manualslib.com/manual/1605591/Taylor-C602.html?page=20#manual',{waitUntil:'domcontentloaded',timeout:60000});
+              await page.waitForFunction(() => {
+                const t=(document.body?.innerText||'').replace(/\s+/g,' ');
+                return t.includes('Service Menu option allows a trained service') && t.includes('critical operating');
+              },{timeout:30000});
+              const handle=await page.evaluateHandle(() => {
+                const norm=(s)=>String(s||'').replace(/\s+/g,' ').trim();
+                const matches=[...document.querySelectorAll('article,section,main,div,p')]
+                  .map(el=>({el,text:norm(el.innerText)}))
+                  .filter(({el,text})=>{const r=el.getBoundingClientRect(); return r.width>280&&r.height>35&&text.includes('Service Menu option allows a trained service')&&text.includes('critical operating');})
+                  .sort((a,b)=>a.text.length-b.text.length);
+                return matches[0]?.el||null;
+              });
+              const element=handle.asElement();
+              if(!element) throw new Error('verified Service Menu passage not found');
+              await element.evaluate(el=>el.scrollIntoView({block:'center'}));
+              await new Promise(r=>setTimeout(r,1000));
+              await element.screenshot({path:process.env.OUT_PATH,type:'png'});
+            } finally { await browser.close(); }
+          })().catch(e=>{console.error(e.message);process.exit(1);});
+          NODE
+          test -s "$out"
+          [[ "$(stat -c %s "$out")" -gt 15000 ]]
+          file "$out" | grep -q 'PNG image data'
+      - name: Deliver evidence privately to Drive
+        shell: bash
+        env:
+          RCLONE_CONFIG_B64: ${{ secrets.RCLONE_CONFIG_B64 }}
+          JOB_ID: ${{ steps.request.outputs.job_id }}
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq rclone
+          source scripts/lib/rclone-common.sh
+          trap rclone_cleanup EXIT
+          validate_job_id
+          prepare_rclone_config 'Drive upload credential is unavailable.'
+          use_telic_renders_root
+          rclone copyto "$RUNNER_TEMP/capture/c602-service-menu.png" "gdrive:$JOB_ID/window07-evidence/c602-service-menu.png" --config "$RCLONE_CONFIG_FILE" --log-level ERROR
+          echo 'Verified evidence delivered to the private job Drive folder.'
+      - name: Cleanup
+        if: always()
+        run: rm -rf private-source "$RUNNER_TEMP/capture"
