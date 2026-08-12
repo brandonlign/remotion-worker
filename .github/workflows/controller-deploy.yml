@@ -1,0 +1,75 @@
+name: Safe Telic controller hot-deploy
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    paths:
+      - jobs/controller-deploy.json
+      - .github/workflows/controller-deploy.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: telic-controller-deploy-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  hot-deploy:
+    if: >-
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      startsWith(github.head_ref, 'controller-deploy/')
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      TS_AUTHKEY: ${{ secrets.TS_AUTHKEY }}
+
+    steps:
+      - name: Check out worker
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Validate deploy request
+        id: request
+        run: node scripts/validate-controller-check.mjs jobs/controller-deploy.json
+
+      - name: Require existing tailnet credential
+        shell: bash
+        run: |
+          if [[ -z "${TS_AUTHKEY}" ]]; then
+            echo "TS_AUTHKEY is not configured in the public worker repository; refusing an insecure fallback."
+            exit 75
+          fi
+
+      - name: Check out exact private controller source
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ secrets.SOURCE_REPOSITORY }}
+          ref: ${{ steps.request.outputs.source_sha }}
+          token: ${{ secrets.SOURCE_REPO_TOKEN }}
+          path: private-source
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: Join the Telic tailnet
+        uses: tailscale/github-action@v4
+        with:
+          authkey: ${{ secrets.TS_AUTHKEY }}
+
+      - name: Hot-apply validated controller recovery
+        shell: bash
+        run: |
+          set -euo pipefail
+          host="telic-controller"
+          tailscale ping --timeout=10s "$host"
+          test -f private-source/tools/telic-controller-v3/hot-apply-long-form-inline-context.sh
+          tailscale ssh "ubuntu@${host}" 'bash -s' < private-source/tools/telic-controller-v3/hot-apply-long-form-inline-context.sh
+          tailscale ssh "ubuntu@${host}" 'set -euo pipefail; runtime="$HOME/telic/telic-vm-controller-v3/src/run-job.mjs"; grep -q "__TELIC_SMART_LONG_FORM_RECOVERY_V1__" "$runtime"; grep -q "__TELIC_INLINE_LONG_WINDOW_CONTEXT_V1__" "$runtime"; echo TELIC_DEPLOY_MARKERS_OK'
+
+      - name: Remove private source checkout
+        if: always()
+        run: rm -rf private-source
