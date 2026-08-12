@@ -1,0 +1,93 @@
+name: Validate repaired long-form package
+
+on:
+  push:
+    branches:
+      - render/telic-web-202608111952-159353
+    paths:
+      - .github/workflows/validate-render-package.yml
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      JOB_ID: telic-web-202608111952-159353
+    steps:
+      - name: Check out worker
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Check out repaired private source
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ secrets.SOURCE_REPOSITORY }}
+          ref: 88ac9ffffa5b80f0ced5db97152d2460735e31b5
+          token: ${{ secrets.SOURCE_REPO_TOKEN }}
+          path: private-source
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: Install audio dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ffmpeg rclone
+
+      - name: Restore locked voice and approved music
+        env:
+          RCLONE_CONFIG_B64: ${{ secrets.RCLONE_CONFIG_B64 }}
+        run: bash scripts/download-drive-audio.sh private-source "$JOB_ID"
+
+      - name: Verify repaired asset and strict package config
+        working-directory: private-source
+        run: |
+          test -s public/assets/current/evidence/kytch-warning-report.png
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          const worker = JSON.parse(fs.readFileSync('remotion-worker.json','utf8'));
+          const job = JSON.parse(fs.readFileSync('automation/current/job.json','utf8'));
+          const yt = JSON.parse(fs.readFileSync('automation/current/youtube.json','utf8'));
+          const comp = JSON.parse(fs.readFileSync('automation/current/composition.json','utf8'));
+          if (worker.prepareCommand !== 'npm run long:prepare') throw new Error('strict long:prepare is not active');
+          if (worker.checkCommand !== 'npm run lint') throw new Error('lint gate is not active');
+          for (const key of ['jobId','publishAt','title','description']) if (job[key] !== yt[key]) throw new Error(`${key} mismatch`);
+          if (JSON.stringify(job.tags) !== JSON.stringify(yt.tags)) throw new Error('tags mismatch');
+          if (comp.thumbnailAuthored !== true || comp.thumbnailCompositionId !== 'LongFormThumbnail') throw new Error('thumbnail metadata incomplete');
+          const chapters = job.description.split('\n').filter((line) => /^\d{2}:\d{2}\s/.test(line));
+          if (chapters.length < 3 || chapters.length > 10 || !chapters[0].startsWith('00:00 ')) throw new Error('chapter contract invalid');
+          for (let i=1;i<=17;i++) {
+            const p=`src/compositions/CurrentLongForm/windows/Window${String(i).padStart(2,'0')}.tsx`;
+            if (fs.readFileSync(p,'utf8').includes('TELIC_LONG_WINDOW_PLACEHOLDER')) throw new Error(`placeholder in ${p}`);
+          }
+          if (/TELIC_LONGFORM_THUMBNAIL_PLACEHOLDER|thumbnail placeholder/i.test(fs.readFileSync('src/compositions/CurrentLongForm/Thumbnail.tsx','utf8'))) throw new Error('thumbnail placeholder remains');
+          NODE
+
+      - name: Install source dependencies
+        working-directory: private-source
+        run: npm ci --no-audit --no-fund
+
+      - name: Run strict long-form preparation
+        working-directory: private-source
+        run: npm run long:prepare
+
+      - name: Run lint type and source contracts
+        working-directory: private-source
+        run: npm run lint
+
+      - name: Render final thumbnail still only
+        working-directory: private-source
+        run: ./node_modules/.bin/remotion still src/index.ts LongFormThumbnail "$RUNNER_TEMP/long-thumbnail.png" --log=error
+
+      - name: Upload validation thumbnail
+        uses: actions/upload-artifact@v4
+        with:
+          name: repaired-longform-thumbnail-validation
+          path: ${{ runner.temp }}/long-thumbnail.png
+          if-no-files-found: error
