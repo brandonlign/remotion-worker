@@ -1,0 +1,67 @@
+name: Hot-apply Telic VM controller
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    paths:
+      - jobs/vm-hot-apply.json
+      - .github/workflows/telic-vm-hot-apply.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: telic-vm-hot-apply
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    if: >-
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      startsWith(github.head_ref, 'controller-deploy/')
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      TS_AUTHKEY: ${{ secrets.TS_AUTHKEY }}
+      TELIC_VM_TS_HOST: ${{ vars.TELIC_VM_TS_HOST }}
+    steps:
+      - name: Check deployment credential
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ -n "${TS_AUTHKEY:-}" ]] || { echo 'Telic worker has no TS_AUTHKEY deployment credential.'; exit 75; }
+
+      - name: Join Telic tailnet
+        uses: tailscale/github-action@v4
+        with:
+          authkey: ${{ secrets.TS_AUTHKEY }}
+
+      - name: Safely install active-job controller fix
+        shell: bash
+        run: |
+          set -euo pipefail
+          host="${TELIC_VM_TS_HOST:-telic-controller}"
+          tailscale ping --timeout=10s "$host" >/dev/null
+          remote_cmd='set -euo pipefail
+          repo="${HOME}/telic/remotion-video"
+          target="${HOME}/telic/telic-vm-controller-v3"
+          expected="a57b9663b730dca792adc931dd55c502cf4927bb"
+          git -C "${repo}" fetch --quiet origin main
+          actual="$(git -C "${repo}" rev-parse origin/main)"
+          [[ "${actual}" == "${expected}" ]] || { echo "origin/main moved; refusing stale deployment"; exit 75; }
+          tmp="$(mktemp)"
+          trap "rm -f ${tmp}" EXIT
+          git -C "${repo}" show origin/main:tools/telic-controller-v3/overrides/src/self-update-watch.sh > "${tmp}"
+          bash -n "${tmp}"
+          install -m 755 "${tmp}" "${target}/src/self-update-watch.sh"
+          systemctl --user start telic-controller-self-update-watch.timer >/dev/null 2>&1 || true
+          mkdir -p "${HOME}/.local/state/telic-controller"
+          log="${HOME}/.local/state/telic-controller/hot-apply-deploy.log"
+          git -C "${repo}" show origin/main:tools/telic-controller-v3/hot-apply-long-form-inline-context.sh | bash >"${log}" 2>&1
+          grep -Fq "__TELIC_LONG_FORM_CHAT_ROLLOVER_V2__" "${target}/src/run-job.mjs"
+          grep -Fq "__TELIC_SMART_LONG_FORM_RECOVERY_V1__" "${target}/src/run-job.mjs"
+          grep -Fq "__TELIC_INLINE_LONG_WINDOW_CONTEXT_V1__" "${target}/src/run-job.mjs"
+          systemctl --user start --no-block telic-controller-self-update-watch.service >/dev/null 2>&1 || true
+          echo "TELIC_VM_HOT_APPLY_VERIFIED ${actual}"
+          '
+          tailscale ssh "ubuntu@${host}" "${remote_cmd}"
