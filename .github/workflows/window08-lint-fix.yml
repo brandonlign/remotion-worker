@@ -1,0 +1,110 @@
+name: Repair private Window08 lint failure
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    paths:
+      - jobs/window08-lint-fix.json
+      - .github/workflows/window08-lint-fix.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: telic-window08-lint-fix-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  repair:
+    if: >-
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.head_ref == 'evidence-capture/telic-window07-20260811'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Check out worker request
+        uses: actions/checkout@v4
+
+      - name: Validate opaque request
+        id: request
+        shell: bash
+        run: |
+          set -euo pipefail
+          node <<'NODE'
+          const fs = require('fs');
+          const value = JSON.parse(fs.readFileSync('jobs/window08-lint-fix.json', 'utf8'));
+          if (!/^telic-web-[0-9]{12}-[a-f0-9]{6}$/.test(String(value.jobId || ''))) throw new Error('invalid jobId');
+          if (!/^[a-f0-9]{40}$/.test(String(value.sourceSha || ''))) throw new Error('invalid sourceSha');
+          if (!Number.isInteger(value.issueNumber) || value.issueNumber < 1) throw new Error('invalid issueNumber');
+          fs.appendFileSync(process.env.GITHUB_OUTPUT, `job_id=${value.jobId}\nsource_sha=${value.sourceSha}\nissue=${value.issueNumber}\n`);
+          NODE
+
+      - name: Check current issue and comments before private write
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.SOURCE_REPO_TOKEN }}
+          SOURCE_REPOSITORY: ${{ secrets.SOURCE_REPOSITORY }}
+        run: |
+          set -euo pipefail
+          state="$(gh api "repos/${SOURCE_REPOSITORY}/issues/${{ steps.request.outputs.issue }}" --jq '.state')"
+          title="$(gh api "repos/${SOURCE_REPOSITORY}/issues/${{ steps.request.outputs.issue }}" --jq '.title')"
+          [[ "$state" == "open" ]] || { echo 'Coordination issue is not open; refusing write.'; exit 75; }
+          [[ "$title" == '[telic-controller] '* ]] || { echo 'Coordination issue identity changed; refusing write.'; exit 75; }
+          comments="$(gh api --paginate "repos/${SOURCE_REPOSITORY}/issues/${{ steps.request.outputs.issue }}/comments" --jq '.[].body')"
+          if grep -Fxq 'TELIC_STAGE: long_visual_build_08_ready' <<<"$comments"; then
+            echo 'Window08 is already durably complete; refusing duplicate repair.'
+            exit 75
+          fi
+
+      - name: Check out exact private source branch
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ secrets.SOURCE_REPOSITORY }}
+          ref: agent/${{ steps.request.outputs.job_id }}
+          token: ${{ secrets.SOURCE_REPO_TOKEN }}
+          path: private-source
+          persist-credentials: true
+          fetch-depth: 1
+
+      - name: Refuse a stale source request
+        shell: bash
+        run: |
+          set -euo pipefail
+          actual="$(git -C private-source rev-parse HEAD)"
+          expected="${{ steps.request.outputs.source_sha }}"
+          [[ "$actual" == "$expected" ]] || { echo "Private source advanced; refusing stale lint repair."; exit 75; }
+
+      - name: Remove the exact unused constant only
+        shell: bash
+        run: |
+          set -euo pipefail
+          target='private-source/src/compositions/CurrentLongForm/windows/Window08.tsx'
+          count="$(grep -Fc 'const RED = "#C9372C";' "$target" || true)"
+          [[ "$count" == '1' ]] || { echo 'Expected one exact unused RED declaration.'; exit 1; }
+          sed -i '/^const RED = "#C9372C";$/d' "$target"
+          ! grep -Fq 'const RED = "#C9372C";' "$target"
+
+      - name: Validate private source
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd private-source
+          npm install --silent --no-audit --no-fund
+          npm run lint
+
+      - name: Commit the private lint repair
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd private-source
+          git config user.name 'telic-controller'
+          git config user.email 'telic-controller@users.noreply.github.com'
+          git add src/compositions/CurrentLongForm/windows/Window08.tsx
+          git diff --cached --quiet && { echo 'No lint repair was produced.'; exit 75; }
+          git commit -m 'Fix Window08 lint failure' >/dev/null
+          git push origin HEAD:agent/${{ steps.request.outputs.job_id }} >/dev/null
+          echo 'Private Window08 lint repair committed.'
+
+      - name: Remove private checkout
+        if: always()
+        run: rm -rf private-source
