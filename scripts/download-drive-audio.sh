@@ -65,3 +65,48 @@ case "$RESTORE_FORMAT" in
     rclone_fail "Audio restore verifier returned an unsupported format: $RESTORE_FORMAT"
     ;;
 esac
+
+# Quality-v2 productions may request one or more approved Telic music tracks in
+# their private audio-design.json. The private source validates the exact
+# library allowlist. This worker only transports the requested Drive files and
+# never commits or logs the proprietary assets publicly.
+MUSIC_REQUEST_FILE="$SOURCE_DIR/automation/current/audio-design.json"
+mapfile -t MUSIC_ROWS < <(node "$WORKER_ROOT/scripts/read-private-music-request.mjs" "$MUSIC_REQUEST_FILE")
+RESTORED_MUSIC_COUNT=0
+for row in "${MUSIC_ROWS[@]}"; do
+  IFS=$'\t' read -r drive_folder_id drive_file_id file_name asset_path <<<"$row"
+  if [ -z "$drive_folder_id" ] || [ -z "$drive_file_id" ] || [ -z "$file_name" ] || [ -z "$asset_path" ]; then
+    rclone_fail "The private music restore request is incomplete."
+  fi
+
+  set_drive_root "$drive_folder_id"
+  actual_id="$(rclone lsjson "gdrive:$file_name" \
+    --config "$RCLONE_CONFIG_FILE" \
+    --stat \
+    --files-only \
+    --log-level ERROR | python3 -c '
+import json, sys
+item = json.load(sys.stdin)
+if not isinstance(item, dict) or not item.get("ID") or item.get("IsDir"):
+    raise SystemExit(65)
+print(item["ID"])
+')"
+  if [ "$actual_id" != "$drive_file_id" ]; then
+    rclone_fail "The selected private Telic music file failed provider identity verification."
+  fi
+
+  destination="$SOURCE_DIR/$asset_path"
+  mkdir -p "$(dirname "$destination")"
+  rclone copyto "gdrive:$file_name" "$destination" \
+    --config "$RCLONE_CONFIG_FILE" \
+    --stats 0 \
+    --log-level ERROR
+  if [ ! -s "$destination" ]; then
+    rclone_fail "A selected private Telic music file was not restored."
+  fi
+  RESTORED_MUSIC_COUNT=$((RESTORED_MUSIC_COUNT + 1))
+done
+
+if [ "$RESTORED_MUSIC_COUNT" -gt 0 ]; then
+  echo "Restored $RESTORED_MUSIC_COUNT private Telic music asset(s)."
+fi
