@@ -1,0 +1,92 @@
+name: Validate repaired full-render evidence
+
+on:
+  push:
+    branches:
+      - render/telic-web-202608111952-159353
+    paths:
+      - .github/workflows/validate-repaired-full-evidence.yml
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    env:
+      JOB_ID: telic-web-202608111952-159353
+    steps:
+      - name: Check out worker
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Check out repaired private source
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ secrets.SOURCE_REPOSITORY }}
+          ref: 50a0833df2aafcca9a08ee967b9807168a2bd4ee
+          token: ${{ secrets.SOURCE_REPO_TOKEN }}
+          path: private-source
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ffmpeg rclone
+          command -v google-chrome || command -v chromium || command -v chromium-browser
+
+      - name: Restore locked voice and approved music
+        env:
+          RCLONE_CONFIG_B64: ${{ secrets.RCLONE_CONFIG_B64 }}
+        run: bash scripts/download-drive-audio.sh private-source "$JOB_ID"
+
+      - name: Install source dependencies
+        working-directory: private-source
+        run: npm ci --no-audit --no-fund
+
+      - name: Run strict full preparation
+        working-directory: private-source
+        run: |
+          npm run long:prepare
+          test -s public/assets/current/evidence/kytch-warning-report.png
+          test -s public/assets/current/evidence/kytch-claim-report.png
+
+      - name: Run lint type and source contracts
+        working-directory: private-source
+        run: npm run lint
+
+      - name: Render strict Window10 range
+        working-directory: private-source
+        run: ./node_modules/.bin/remotion render src/index.ts CustomLongForm "$RUNNER_TEMP/window10-full-path.mp4" --codec=h264 --crf=20 --frames=6545-7315 --log=error
+
+      - name: Render strict Window12 range
+        working-directory: private-source
+        run: ./node_modules/.bin/remotion render src/index.ts CustomLongForm "$RUNNER_TEMP/window12-full-path.mp4" --codec=h264 --crf=20 --frames=8037-8772 --log=error
+
+      - name: Render final thumbnail still
+        working-directory: private-source
+        run: ./node_modules/.bin/remotion still src/index.ts LongFormThumbnail "$RUNNER_TEMP/thumbnail.png" --frame=0 --log=error
+
+      - name: Copy evidence plates for inspection
+        working-directory: private-source
+        run: |
+          cp public/assets/current/evidence/kytch-warning-report.png "$RUNNER_TEMP/kytch-warning-report.png"
+          cp public/assets/current/evidence/kytch-claim-report.png "$RUNNER_TEMP/kytch-claim-report.png"
+
+      - name: Upload validation artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: repaired-full-evidence-qc
+          path: |
+            ${{ runner.temp }}/window10-full-path.mp4
+            ${{ runner.temp }}/window12-full-path.mp4
+            ${{ runner.temp }}/thumbnail.png
+            ${{ runner.temp }}/kytch-warning-report.png
+            ${{ runner.temp }}/kytch-claim-report.png
+          if-no-files-found: error
