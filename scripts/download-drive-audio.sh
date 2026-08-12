@@ -11,7 +11,8 @@ JOB_ID="$2"
 WORKER_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 source "$WORKER_ROOT/scripts/lib/rclone-common.sh"
 DRIVE_RUNTIME_FILE="$(mktemp)"
-trap 'rm -f "${DRIVE_RUNTIME_FILE}"; rclone_cleanup' EXIT
+MUSIC_ROWS_FILE="$(mktemp)"
+trap 'rm -f "${DRIVE_RUNTIME_FILE}" "${MUSIC_ROWS_FILE}"; rclone_cleanup' EXIT
 
 if [ ! -d "$SOURCE_DIR" ]; then
   rclone_fail "Private source directory does not exist." 66
@@ -71,7 +72,10 @@ esac
 # library allowlist. This worker only transports the requested Drive files and
 # never commits or logs the proprietary assets publicly.
 MUSIC_REQUEST_FILE="$SOURCE_DIR/automation/current/audio-design.json"
-mapfile -t MUSIC_ROWS < <(node "$WORKER_ROOT/scripts/read-private-music-request.mjs" "$MUSIC_REQUEST_FILE")
+if ! node "$WORKER_ROOT/scripts/read-private-music-request.mjs" "$MUSIC_REQUEST_FILE" > "$MUSIC_ROWS_FILE"; then
+  rclone_fail "The private music restore request could not be validated."
+fi
+mapfile -t MUSIC_ROWS < "$MUSIC_ROWS_FILE"
 RESTORED_MUSIC_COUNT=0
 for row in "${MUSIC_ROWS[@]}"; do
   IFS=$'\t' read -r drive_folder_id drive_file_id file_name asset_path <<<"$row"
