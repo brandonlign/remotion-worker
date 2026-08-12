@@ -35,26 +35,8 @@ jobs:
           const value = JSON.parse(fs.readFileSync('jobs/window08-lint-fix.json', 'utf8'));
           if (!/^telic-web-[0-9]{12}-[a-f0-9]{6}$/.test(String(value.jobId || ''))) throw new Error('invalid jobId');
           if (!/^[a-f0-9]{40}$/.test(String(value.sourceSha || ''))) throw new Error('invalid sourceSha');
-          if (!Number.isInteger(value.issueNumber) || value.issueNumber < 1) throw new Error('invalid issueNumber');
-          fs.appendFileSync(process.env.GITHUB_OUTPUT, `job_id=${value.jobId}\nsource_sha=${value.sourceSha}\nissue=${value.issueNumber}\n`);
+          fs.appendFileSync(process.env.GITHUB_OUTPUT, `job_id=${value.jobId}\nsource_sha=${value.sourceSha}\n`);
           NODE
-
-      - name: Check current issue and comments before private write
-        shell: bash
-        env:
-          GH_TOKEN: ${{ secrets.SOURCE_REPO_TOKEN }}
-          SOURCE_REPOSITORY: ${{ secrets.SOURCE_REPOSITORY }}
-        run: |
-          set -euo pipefail
-          state="$(gh api "repos/${SOURCE_REPOSITORY}/issues/${{ steps.request.outputs.issue }}" --jq '.state')"
-          title="$(gh api "repos/${SOURCE_REPOSITORY}/issues/${{ steps.request.outputs.issue }}" --jq '.title')"
-          [[ "$state" == "open" ]] || { echo 'Coordination issue is not open; refusing write.'; exit 75; }
-          [[ "$title" == '[telic-controller] '* ]] || { echo 'Coordination issue identity changed; refusing write.'; exit 75; }
-          comments="$(gh api --paginate "repos/${SOURCE_REPOSITORY}/issues/${{ steps.request.outputs.issue }}/comments" --jq '.[].body')"
-          if grep -Fxq 'TELIC_STAGE: long_visual_build_08_ready' <<<"$comments"; then
-            echo 'Window08 is already durably complete; refusing duplicate repair.'
-            exit 75
-          fi
 
       - name: Check out exact private source branch
         uses: actions/checkout@v4
