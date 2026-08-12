@@ -1,7 +1,6 @@
 {
   "jobId": "telic-web-202608111952-159353",
   "sourceSha": "50a0833df2aafcca9a08ee967b9807168a2bd4ee",
-  "revision": 51,
-  "mode": "render-sequence",
-  "sequenceIndex": 9
+  "revision": 52,
+  "mode": "render"
 }
