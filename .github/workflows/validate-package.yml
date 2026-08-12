@@ -14,6 +14,8 @@ jobs:
   validate:
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    env:
+      JOB_ID: telic-web-202608111952-159353
     steps:
       - name: Check out worker
         uses: actions/checkout@v4
@@ -41,7 +43,7 @@ jobs:
       - name: Restore locked voice package
         env:
           RCLONE_CONFIG_B64: ${{ secrets.RCLONE_CONFIG_B64 }}
-        run: bash scripts/download-drive-audio.sh private-source telic-web-202608111952-159353
+        run: bash scripts/download-drive-audio.sh private-source "$JOB_ID"
 
       - name: Validate metadata chapters and placeholders
         working-directory: private-source
