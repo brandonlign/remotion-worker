@@ -129,6 +129,9 @@ jobs:
           if (start < 0 || end <= start) throw new Error('Window07 evidence anchors changed.');
           const replacement = `      <div\n        style={{\n          position: "absolute",\n          left: 1018,\n          top: 176,\n          width: 760,\n          height: 690,\n          opacity: evidenceIn * (1 - 0.72 * phraseLift),\n          transform: \`translateX(\${move(frame, 158, 220, 92, 0)}px)\`,\n          overflow: "hidden",\n          background: "#FFFFFF",\n          border: \`2px solid \${RULE}\`,\n          boxShadow: "0 18px 50px rgba(23,23,23,0.10)",\n        }}\n      >\n        <Img src={staticFile("assets/current/evidence/c602-service-menu.png")} style={{width: "100%", height: "100%", objectFit: "contain", background: "#FFFFFF"}} />\n        <div style={{position: "absolute", left: 22, bottom: 18, padding: "9px 13px", background: "rgba(244,240,232,0.94)", border: \`1px solid \${RULE}\`, fontSize: 17, fontWeight: 900, letterSpacing: 0.6, color: MUTED}}>\n          Taylor C602 Service Manual · page 20 · ManualsLib\n        </div>\n      </div>\n\n`;
           s = s.slice(0, start) + replacement + s.slice(end);
+          const obsoleteProof = '  const proof = fade(frame, 218, 270);\n';
+          if (!s.includes(obsoleteProof)) throw new Error('Window07 obsolete proof anchor changed.');
+          s = s.replace(obsoleteProof, '');
           if (s.includes('SOURCE TRANSCRIPT') || s.includes('Transcribed from the verified Taylor service-manual source')) throw new Error('Simulated Window07 transcript remains.');
           if (!s.includes('c602-service-menu.png')) throw new Error('Window07 real evidence path missing.');
           fs.writeFileSync(p, s);
