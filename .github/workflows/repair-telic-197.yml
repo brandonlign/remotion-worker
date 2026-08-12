@@ -1,0 +1,171 @@
+name: Repair Telic 197 Window07-08
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    paths:
+      - jobs/repair-telic-197.json
+      - .github/workflows/repair-telic-197.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: telic-197-window07-08-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  repair:
+    if: >-
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.head_ref == 'repair/telic-197-window07-08-20260812'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Check out worker request
+        uses: actions/checkout@v4
+
+      - name: Validate opaque request
+        id: request
+        shell: bash
+        run: |
+          set -euo pipefail
+          node <<'NODE'
+          const fs = require('fs');
+          const value = JSON.parse(fs.readFileSync('jobs/repair-telic-197.json', 'utf8'));
+          if (value.jobId !== 'telic-web-202608111952-159353') throw new Error('unexpected jobId');
+          if (!/^[a-f0-9]{40}$/.test(String(value.sourceSha || ''))) throw new Error('invalid sourceSha');
+          if (!Number.isInteger(value.revision) || value.revision < 1) throw new Error('invalid revision');
+          fs.appendFileSync(process.env.GITHUB_OUTPUT, `job_id=${value.jobId}\nsource_sha=${value.sourceSha}\n`);
+          NODE
+
+      - name: Check out exact private source branch
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ secrets.SOURCE_REPOSITORY }}
+          ref: agent/${{ steps.request.outputs.job_id }}
+          token: ${{ secrets.SOURCE_REPO_TOKEN }}
+          path: private-source
+          persist-credentials: true
+          fetch-depth: 1
+
+      - name: Refuse stale source
+        shell: bash
+        run: |
+          set -euo pipefail
+          actual="$(git -C private-source rev-parse HEAD)"
+          expected="${{ steps.request.outputs.source_sha }}"
+          [[ "$actual" == "$expected" ]] || { echo "Private source advanced; refusing stale repair."; exit 75; }
+
+      - name: Capture verified C602 Service Menu evidence
+        shell: bash
+        run: |
+          set -euo pipefail
+          capture_root="$RUNNER_TEMP/telic-evidence-capture"
+          mkdir -p "$capture_root"
+          npm install --silent --no-save --prefix "$capture_root" puppeteer-core@24
+          chrome="$(command -v google-chrome || command -v chromium || command -v chromium-browser || true)"
+          [[ -n "$chrome" ]] || { echo "No Chromium browser available."; exit 1; }
+          out="$GITHUB_WORKSPACE/private-source/public/assets/current/evidence/c602-service-menu.png"
+          mkdir -p "$(dirname "$out")"
+          CAPTURE_ROOT="$capture_root" CHROME_BIN="$chrome" OUT_PATH="$out" node <<'NODE'
+          const path = require('path');
+          const puppeteer = require(path.join(process.env.CAPTURE_ROOT, 'node_modules', 'puppeteer-core'));
+          (async () => {
+            const browser = await puppeteer.launch({executablePath: process.env.CHROME_BIN, headless: true, args: ['--no-sandbox', '--disable-dev-shm-usage']});
+            try {
+              const page = await browser.newPage();
+              await page.setViewport({width: 1440, height: 1700, deviceScaleFactor: 2});
+              await page.goto('https://www.manualslib.com/manual/1605591/Taylor-C602.html?page=20#manual', {waitUntil: 'networkidle2', timeout: 60000});
+              await page.waitForFunction(() => {
+                const t = (document.body?.innerText || '').replace(/\s+/g, ' ');
+                return t.includes('Service Menu option allows a trained service') && t.includes('critical operating');
+              }, {timeout: 30000});
+              const handle = await page.evaluateHandle(() => {
+                const norm = (s) => String(s || '').replace(/\s+/g, ' ').trim();
+                const matches = [...document.querySelectorAll('article, section, main, div, p')]
+                  .map((el) => ({el, text: norm(el.innerText)}))
+                  .filter(({el, text}) => {
+                    const r = el.getBoundingClientRect();
+                    return r.width > 280 && r.height > 35 && text.includes('Service Menu option allows a trained service') && text.includes('critical operating');
+                  })
+                  .sort((a, b) => a.text.length - b.text.length);
+                return matches[0]?.el || null;
+              });
+              const element = handle.asElement();
+              if (!element) throw new Error('Could not isolate verified Service Menu passage.');
+              await element.evaluate((el) => el.scrollIntoView({block: 'center'}));
+              await new Promise((resolve) => setTimeout(resolve, 1000));
+              await element.screenshot({path: process.env.OUT_PATH, type: 'png'});
+            } finally {
+              await browser.close();
+            }
+          })().catch((error) => { console.error(error.message); process.exit(1); });
+          NODE
+          test -s "$out"
+          [[ "$(stat -c %s "$out")" -gt 15000 ]]
+          file "$out" | grep -q 'PNG image data'
+
+      - name: Repair Window07 evidence and Window08 lint
+        shell: bash
+        run: |
+          set -euo pipefail
+          node <<'NODE'
+          const fs = require('fs');
+          const p7 = 'private-source/src/compositions/CurrentLongForm/windows/Window07.tsx';
+          let s = fs.readFileSync(p7, 'utf8');
+          const oldImport = 'import {AbsoluteFill, Easing, interpolate, useCurrentFrame} from "remotion";';
+          const newImport = 'import {AbsoluteFill, Easing, Img, interpolate, staticFile, useCurrentFrame} from "remotion";';
+          if (s.includes(oldImport)) s = s.replace(oldImport, newImport);
+          if (!s.includes(newImport)) throw new Error('Window07 import contract changed.');
+          const startNeedle = '      <div\n        style={{\n          position: "absolute",\n          left: 1018,';
+          const endNeedle = '      <div\n        style={{\n          position: "absolute",\n          left: move(frame, 318, 382, 1160, 1070),';
+          const start = s.indexOf(startNeedle);
+          const end = s.indexOf(endNeedle, start + 1);
+          if (start < 0 || end <= start) throw new Error('Window07 evidence anchors changed.');
+          const replacement = `      <div\n        style={{\n          position: "absolute",\n          left: 1018,\n          top: 176,\n          width: 760,\n          height: 690,\n          opacity: evidenceIn * (1 - 0.72 * phraseLift),\n          transform: \`translateX(\${move(frame, 158, 220, 92, 0)}px)\`,\n          overflow: "hidden",\n          background: "#FFFFFF",\n          border: \`2px solid \${RULE}\`,\n          boxShadow: "0 18px 50px rgba(23,23,23,0.10)",\n        }}\n      >\n        <Img src={staticFile("assets/current/evidence/c602-service-menu.png")} style={{width: "100%", height: "100%", objectFit: "contain", background: "#FFFFFF"}} />\n        <div style={{position: "absolute", left: 22, bottom: 18, padding: "9px 13px", background: "rgba(244,240,232,0.94)", border: \`1px solid \${RULE}\`, fontSize: 17, fontWeight: 900, letterSpacing: 0.6, color: MUTED}}>\n          Taylor C602 Service Manual · page 20 · ManualsLib\n        </div>\n      </div>\n\n`;
+          s = s.slice(0, start) + replacement + s.slice(end);
+          if (s.includes('SOURCE TRANSCRIPT') || s.includes('Transcribed from the verified Taylor service-manual source')) throw new Error('Simulated Window07 transcript remains.');
+          fs.writeFileSync(p7, s);
+
+          const p8 = 'private-source/src/compositions/CurrentLongForm/windows/Window08.tsx';
+          let w8 = fs.readFileSync(p8, 'utf8');
+          const unused = 'const RED = "#C9372C";\n';
+          if (!w8.includes(unused)) throw new Error('Window08 RED lint anchor changed.');
+          fs.writeFileSync(p8, w8.replace(unused, ''));
+          NODE
+
+      - name: Validate repaired private source
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd private-source
+          npm ci --silent
+          npx eslint src/compositions/CurrentLongForm/windows/Window07.tsx src/compositions/CurrentLongForm/windows/Window08.tsx
+          npx tsc --noEmit
+
+      - name: Recheck branch immediately before push
+        shell: bash
+        run: |
+          set -euo pipefail
+          git -C private-source fetch origin "agent/${{ steps.request.outputs.job_id }}" --quiet
+          remote="$(git -C private-source rev-parse FETCH_HEAD)"
+          expected="${{ steps.request.outputs.source_sha }}"
+          [[ "$remote" == "$expected" ]] || { echo "Private source advanced during repair; refusing write."; exit 75; }
+
+      - name: Commit private repair
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd private-source
+          git config user.name 'telic-controller'
+          git config user.email 'telic-controller@users.noreply.github.com'
+          git add public/assets/current/evidence/c602-service-menu.png src/compositions/CurrentLongForm/windows/Window07.tsx src/compositions/CurrentLongForm/windows/Window08.tsx
+          git diff --cached --quiet && { echo 'No repair change produced.'; exit 75; }
+          git commit -m 'Repair Window07 evidence and Window08 lint' >/dev/null
+          git push origin HEAD:agent/${{ steps.request.outputs.job_id }} >/dev/null
+          echo 'Private repair pushed.'
+
+      - name: Remove private checkout
+        if: always()
+        run: rm -rf private-source "$RUNNER_TEMP/telic-evidence-capture"
