@@ -20,7 +20,7 @@ jobs:
       github.event.pull_request.head.repo.full_name == github.repository &&
       startsWith(github.head_ref, 'evidence-capture/')
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
     steps:
       - name: Check out worker request
         uses: actions/checkout@v4
@@ -56,6 +56,21 @@ jobs:
           actual="$(git -C private-source rev-parse HEAD)"
           expected="${{ steps.request.outputs.source_sha }}"
           [[ "$actual" == "$expected" ]] || { echo "Private source advanced; refusing stale evidence write."; exit 75; }
+
+      - name: Recheck issue before private write
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.SOURCE_REPO_TOKEN }}
+          SOURCE_REPOSITORY: ${{ secrets.SOURCE_REPOSITORY }}
+        run: |
+          set -euo pipefail
+          issue_json="$(mktemp)"
+          comments_json="$(mktemp)"
+          gh api "repos/${SOURCE_REPOSITORY}/issues/197" >"$issue_json"
+          gh api --paginate "repos/${SOURCE_REPOSITORY}/issues/197/comments?per_page=100" --slurp >"$comments_json"
+          jq -e '.state == "open" and (.title | startswith("[telic-controller]"))' "$issue_json" >/dev/null
+          jq -e '[.[][] | .body] | any(. == "TELIC_STAGE: long_visual_build_08_ready") | not' "$comments_json" >/dev/null
+          rm -f "$issue_json" "$comments_json"
 
       - name: Capture the verified service-manual passage
         shell: bash
@@ -114,14 +129,14 @@ jobs:
           [[ "$size" -gt 15000 ]] || { echo "Captured evidence image is unexpectedly small."; exit 1; }
           file "$out" | grep -q 'PNG image data'
 
-      - name: Replace the simulated transcript with the real capture
+      - name: Replace simulated evidence and fix Window08 lint
         shell: bash
         run: |
           set -euo pipefail
           node <<'NODE'
           const fs = require('fs');
-          const p = 'private-source/src/compositions/CurrentLongForm/windows/Window07.tsx';
-          let s = fs.readFileSync(p, 'utf8');
+          const p7 = 'private-source/src/compositions/CurrentLongForm/windows/Window07.tsx';
+          let s = fs.readFileSync(p7, 'utf8');
           const oldImport = 'import {AbsoluteFill, Easing, interpolate, useCurrentFrame} from "remotion";';
           const newImport = 'import {AbsoluteFill, Easing, Img, interpolate, staticFile, useCurrentFrame} from "remotion";';
           if (s.includes(oldImport)) s = s.replace(oldImport, newImport);
@@ -137,21 +152,56 @@ jobs:
             throw new Error('Simulated transcript evidence remains in Window07.');
           }
           if (!s.includes('c602-service-menu.png')) throw new Error('Real evidence asset was not wired into Window07.');
-          fs.writeFileSync(p, s);
+          fs.writeFileSync(p7, s);
+
+          const p8 = 'private-source/src/compositions/CurrentLongForm/windows/Window08.tsx';
+          let w8 = fs.readFileSync(p8, 'utf8');
+          const unused = 'const RED = "#C9372C";\n';
+          if (!w8.includes(unused)) throw new Error('Window08 unused RED lint anchor changed.');
+          w8 = w8.replace(unused, '');
+          fs.writeFileSync(p8, w8);
           NODE
 
-      - name: Commit only the private evidence fix
+      - name: Lint repaired private source
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd private-source
+          npm ci --silent
+          npx eslint src/compositions/CurrentLongForm/windows/Window07.tsx src/compositions/CurrentLongForm/windows/Window08.tsx
+          npx tsc --noEmit
+
+      - name: Recheck issue and branch immediately before push
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.SOURCE_REPO_TOKEN }}
+          SOURCE_REPOSITORY: ${{ secrets.SOURCE_REPOSITORY }}
+        run: |
+          set -euo pipefail
+          git -C private-source fetch origin "agent/${{ steps.request.outputs.job_id }}" --quiet
+          remote="$(git -C private-source rev-parse FETCH_HEAD)"
+          expected="${{ steps.request.outputs.source_sha }}"
+          [[ "$remote" == "$expected" ]] || { echo "Private source advanced during repair; refusing write."; exit 75; }
+          issue_json="$(mktemp)"
+          comments_json="$(mktemp)"
+          gh api "repos/${SOURCE_REPOSITORY}/issues/197" >"$issue_json"
+          gh api --paginate "repos/${SOURCE_REPOSITORY}/issues/197/comments?per_page=100" --slurp >"$comments_json"
+          jq -e '.state == "open" and (.title | startswith("[telic-controller]"))' "$issue_json" >/dev/null
+          jq -e '[.[][] | .body] | any(. == "TELIC_STAGE: long_visual_build_08_ready") | not' "$comments_json" >/dev/null
+          rm -f "$issue_json" "$comments_json"
+
+      - name: Commit only the private repair
         shell: bash
         run: |
           set -euo pipefail
           cd private-source
           git config user.name 'telic-controller'
           git config user.email 'telic-controller@users.noreply.github.com'
-          git add public/assets/current/evidence/c602-service-menu.png src/compositions/CurrentLongForm/windows/Window07.tsx
-          git diff --cached --quiet && { echo 'No private evidence change was produced.'; exit 75; }
-          git commit -m 'Materialize Window07 service-menu evidence' >/dev/null
+          git add public/assets/current/evidence/c602-service-menu.png src/compositions/CurrentLongForm/windows/Window07.tsx src/compositions/CurrentLongForm/windows/Window08.tsx
+          git diff --cached --quiet && { echo 'No private repair change was produced.'; exit 75; }
+          git commit -m 'Repair Window07 evidence and Window08 lint' >/dev/null
           git push origin HEAD:agent/${{ steps.request.outputs.job_id }} >/dev/null
-          echo 'Private Window07 evidence fix committed without exposing source or assets.'
+          echo 'Private Window07/08 repair committed without exposing source or assets.'
 
       - name: Remove private checkout
         if: always()
