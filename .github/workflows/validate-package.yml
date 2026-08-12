@@ -29,18 +29,18 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: ${{ secrets.SOURCE_REPOSITORY }}
-          ref: 694e99d89f0ab2e62ee66b81260156a14438a523
+          ref: a839a51679f7ce99b3c7474bf44d4f60f0511273
           token: ${{ secrets.SOURCE_REPO_TOKEN }}
           path: private-source
           persist-credentials: false
           fetch-depth: 1
 
-      - name: Install restore dependency
+      - name: Install restore and audio dependencies
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y -qq rclone
+          sudo apt-get install -y -qq ffmpeg rclone
 
-      - name: Restore locked voice package
+      - name: Restore locked voice and approved music
         env:
           RCLONE_CONFIG_B64: ${{ secrets.RCLONE_CONFIG_B64 }}
         run: bash scripts/download-drive-audio.sh private-source "$JOB_ID"
