@@ -1,0 +1,76 @@
+name: One-shot Telic VM recovery
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/recover-telic-vm.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: one-shot-telic-vm-recovery
+  cancel-in-progress: false
+
+jobs:
+  recover:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      TS_AUTHKEY: ${{ secrets.TS_AUTHKEY }}
+      SOURCE_REPOSITORY: ${{ secrets.SOURCE_REPOSITORY }}
+      TELIC_VM_TS_HOST: ${{ vars.TELIC_VM_TS_HOST }}
+    steps:
+      - name: Require configured bridge credentials
+        shell: bash
+        run: |
+          test -n "$TS_AUTHKEY" || { echo "Public worker has no TS_AUTHKEY configured."; exit 78; }
+          test -n "$SOURCE_REPOSITORY" || { echo "Public worker has no SOURCE_REPOSITORY configured."; exit 78; }
+
+      - name: Join Telic tailnet
+        uses: tailscale/github-action@v4
+        with:
+          authkey: ${{ secrets.TS_AUTHKEY }}
+
+      - name: Recover current stuck long-form job
+        shell: bash
+        run: |
+          set -euo pipefail
+          host="${TELIC_VM_TS_HOST:-telic-controller}"
+          source_repo_b64="$(printf '%s' "$SOURCE_REPOSITORY" | base64 -w0)"
+          remote_cmd='set -euo pipefail
+          state="$HOME/.local/state/telic-controller/state.json"
+          test -f "$state"
+          phase="$(jq -r ".activeJob.phase // empty" "$state")"
+          case "$phase" in long_*) ;; *) echo "Refusing recovery: active job is not long-form ($phase)."; exit 65 ;; esac
+          issue="$(jq -r ".activeJob.issueNumber // empty" "$state")"
+          test "$issue" -gt 0
+          repo="$(printf "%s" "'"$source_repo_b64"'" | base64 -d)"
+          script="tools/telic-controller-v3/recover-pinned-long-job-${issue}.sh"
+          gh api "repos/${repo}/contents/${script}?ref=main" --jq .content >/tmp/telic-recovery.b64
+          tr -d "\n" </tmp/telic-recovery.b64 | base64 -d >/tmp/telic-recovery.sh
+          rm -f /tmp/telic-recovery.b64
+          bash -n /tmp/telic-recovery.sh
+
+          sudo systemctl stop telic-controller.service 2>/dev/null || true
+          systemctl --user stop telic-controller-auto-recover.timer telic-controller-auto-recover.service 2>/dev/null || true
+          mapfile -t units < <(systemctl --user list-units --all --no-legend "telic-supervised-long-*" "telic-manual-long-*" 2>/dev/null | awk "{print \$1}" | grep -E "^(telic-supervised-long-|telic-manual-long-)" || true)
+          if ((${#units[@]})); then systemctl --user stop "${units[@]}" 2>/dev/null || true; fi
+
+          mapfile -t pids < <(pgrep -f "^/home/ubuntu/.nvm/versions/node/v22\\.23\\.2/bin/node /home/ubuntu/telic/telic-vm-controller-v3/src/(single-job-guard|run-job)\\.mjs" || true)
+          if ((${#pids[@]})); then
+            kill -TERM "${pids[@]}" 2>/dev/null || true
+            sleep 2
+          fi
+          mapfile -t pids < <(pgrep -f "^/home/ubuntu/.nvm/versions/node/v22\\.23\\.2/bin/node /home/ubuntu/telic/telic-vm-controller-v3/src/(single-job-guard|run-job)\\.mjs" || true)
+          if ((${#pids[@]})); then
+            kill -KILL "${pids[@]}" 2>/dev/null || true
+            sleep 1
+          fi
+
+          bash /tmp/telic-recovery.sh
+          rm -f /tmp/telic-recovery.sh
+          jq "{jobId:.activeJob.jobId,format:.activeJob.format,phase:.activeJob.phase,status:.activeJob.status}" "$state"'
+          tailscale ssh "ubuntu@${host}" "$remote_cmd"
