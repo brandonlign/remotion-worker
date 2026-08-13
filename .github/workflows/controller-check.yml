@@ -5,6 +5,7 @@ on:
     types: [opened, synchronize, reopened]
     paths:
       - jobs/controller-check.json
+      - .github/workflows/controller-check.yml
 
 permissions:
   contents: read
@@ -20,6 +21,9 @@ jobs:
       startsWith(github.head_ref, 'controller-check/')
     runs-on: ubuntu-latest
     timeout-minutes: 45
+    env:
+      TS_AUTHKEY: ${{ secrets.TS_AUTHKEY }}
+      TELIC_VM_TS_HOST: ${{ vars.TELIC_VM_TS_HOST }}
 
     steps:
       - name: Check out worker
@@ -51,6 +55,47 @@ jobs:
           bash private-source/tools/telic-controller-v3/worker-controller-validation.sh \
             "$GITHUB_WORKSPACE/private-source" \
             "${{ steps.request.outputs.source_sha }}"
+
+      - name: Join Telic tailnet for validated update
+        id: tailscale
+        if: ${{ env.TS_AUTHKEY != '' }}
+        continue-on-error: true
+        uses: tailscale/github-action@v4
+        with:
+          authkey: ${{ secrets.TS_AUTHKEY }}
+
+      - name: Install validated controller on idle VM
+        if: ${{ env.TS_AUTHKEY != '' && steps.tailscale.outcome == 'success' }}
+        shell: bash
+        env:
+          EXPECTED_SHA: ${{ steps.request.outputs.source_sha }}
+        run: |
+          set -euo pipefail
+          host="${TELIC_VM_TS_HOST:-telic-controller}"
+          tailscale ping --timeout=10s "$host" >/dev/null
+          remote_cmd="set -euo pipefail
+          expected='${EXPECTED_SHA}'
+          repo=\"\${HOME}/telic/remotion-video\"
+          state=\"\${HOME}/.local/state/telic-controller/state.json\"
+          if [[ -f \"\${state}\" ]] && jq -e '.activeJob != null' \"\${state}\" >/dev/null; then
+            echo TELIC_VM_UPDATE_DEFERRED_ACTIVE_JOB
+            exit 75
+          fi
+          systemctl --user stop telic-controller-auto-recover.timer telic-controller-auto-recover.service 2>/dev/null || true
+          restore_recovery() { systemctl --user enable --now telic-controller-auto-recover.timer >/dev/null 2>&1 || true; }
+          trap restore_recovery EXIT
+          systemctl --user start telic-controller-self-update.service
+          actual=\"\$(git -C \"\${repo}\" rev-parse HEAD)\"
+          if [[ \"\${actual}\" != \"\${expected}\" ]]; then
+            echo TELIC_VM_UPDATE_SHA_MISMATCH
+            exit 1
+          fi
+          echo TELIC_VM_UPDATE_OK"
+          tailscale ssh "ubuntu@$host" "$remote_cmd"
+
+      - name: Note missing VM nudge credential
+        if: ${{ env.TS_AUTHKEY == '' }}
+        run: echo "Validated controller passed; this worker repository has no Tailscale nudge credential."
 
       - name: Remove private source checkout
         if: always()
