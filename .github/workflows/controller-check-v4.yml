@@ -1,0 +1,40 @@
+name: Validate private Telic preview SHA V4
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    paths:
+      - jobs/controller-check-v4.json
+      - .github/workflows/controller-check-v4.yml
+
+permissions:
+  contents: read
+
+jobs:
+  controller-check-v4:
+    if: startsWith(github.head_ref, 'controller-check/')
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Validate request
+        id: request
+        run: node scripts/validate-controller-check.mjs jobs/controller-check-v4.json
+      - name: Check out exact private source
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ secrets.SOURCE_REPOSITORY }}
+          ref: ${{ steps.request.outputs.source_sha }}
+          token: ${{ secrets.SOURCE_REPO_TOKEN }}
+          path: private-source
+          persist-credentials: false
+          fetch-depth: 1
+      - name: Test authenticated preview source SHA patch
+        run: node private-source/tools/telic-controller-v3/overrides/src/long-window-preview-source-sha-v4-patch.test.mjs
+      - name: Validate generated controller
+        run: bash private-source/tools/telic-controller-v3/worker-controller-validation.sh "$GITHUB_WORKSPACE/private-source" "${{ steps.request.outputs.source_sha }}"
+      - if: always()
+        run: rm -rf private-source
