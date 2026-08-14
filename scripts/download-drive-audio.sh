@@ -1,18 +1,24 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-if [ "$#" -ne 2 ]; then
-  echo "Usage: download-drive-audio.sh <private-source-dir> <job-id>" >&2
+if [ "$#" -lt 2 ] || [ "$#" -gt 3 ]; then
+  echo "Usage: download-drive-audio.sh <private-source-dir> <job-id> [render|render-sequence]" >&2
   exit 64
 fi
 
 SOURCE_DIR="$1"
 JOB_ID="$2"
+RESTORE_MODE="${3:-render}"
 WORKER_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 source "$WORKER_ROOT/scripts/lib/rclone-common.sh"
 DRIVE_RUNTIME_FILE="$(mktemp)"
 MUSIC_ROWS_FILE="$(mktemp)"
 trap 'rm -f "${DRIVE_RUNTIME_FILE}" "${MUSIC_ROWS_FILE}"; rclone_cleanup' EXIT
+
+case "$RESTORE_MODE" in
+  render|render-sequence) ;;
+  *) rclone_fail "Unsupported audio restore mode: $RESTORE_MODE" 64 ;;
+esac
 
 if [ ! -d "$SOURCE_DIR" ]; then
   rclone_fail "Private source directory does not exist." 66
@@ -37,35 +43,51 @@ ALIGNMENT_FILE="$SOURCE_DIR/automation/current/alignment.json"
 SOURCE_RUNTIME_FILE="$SOURCE_DIR/automation/current/audio-runtime.json"
 
 copy_voice_artifact voiceover.mp3 "$AUDIO_FILE"
-copy_voice_artifact alignment.json "$ALIGNMENT_FILE"
-copy_voice_artifact audio-runtime.json "$DRIVE_RUNTIME_FILE"
 
-for required in "$AUDIO_FILE" "$ALIGNMENT_FILE" "$DRIVE_RUNTIME_FILE"; do
-  if [ ! -s "$required" ]; then
-    rclone_fail "The prepared private voice package is incomplete."
+if [ "$RESTORE_MODE" = "render-sequence" ]; then
+  if [ ! -s "$AUDIO_FILE" ]; then
+    rclone_fail "The prepared private voiceover is incomplete."
   fi
-done
+  # Sequence previews already have the frozen long-form runtime in private source.
+  # Verify the downloaded MP3 directly against that committed SHA lock and job ID;
+  # alignment.json and a duplicate Drive runtime are not needed to render a window.
+  node "$WORKER_ROOT/scripts/verify-restored-audio.mjs" \
+    --committed-long \
+    "$SOURCE_RUNTIME_FILE" \
+    "$AUDIO_FILE" \
+    "$JOB_ID" \
+    >/dev/null
+else
+  copy_voice_artifact alignment.json "$ALIGNMENT_FILE"
+  copy_voice_artifact audio-runtime.json "$DRIVE_RUNTIME_FILE"
 
-RESTORE_FORMAT="$(node "$WORKER_ROOT/scripts/verify-restored-audio.mjs" \
-  "$SOURCE_RUNTIME_FILE" \
-  "$DRIVE_RUNTIME_FILE" \
-  "$AUDIO_FILE")"
+  for required in "$AUDIO_FILE" "$ALIGNMENT_FILE" "$DRIVE_RUNTIME_FILE"; do
+    if [ ! -s "$required" ]; then
+      rclone_fail "The prepared private voice package is incomplete."
+    fi
+  done
 
-case "$RESTORE_FORMAT" in
-  long)
-    # The committed private-source runtime remains authoritative. The verifier
-    # already proved the Drive copy is semantically identical and the MP3 hash
-    # matches it, so do not overwrite the frozen source manifest.
-    ;;
-  short)
-    # Preserve the legacy Short behavior: timing is restored from the private
-    # Drive package because Shorts do not use the committed long-form freeze.
-    cp "$DRIVE_RUNTIME_FILE" "$SOURCE_RUNTIME_FILE"
-    ;;
-  *)
-    rclone_fail "Audio restore verifier returned an unsupported format: $RESTORE_FORMAT"
-    ;;
-esac
+  RESTORE_FORMAT="$(node "$WORKER_ROOT/scripts/verify-restored-audio.mjs" \
+    "$SOURCE_RUNTIME_FILE" \
+    "$DRIVE_RUNTIME_FILE" \
+    "$AUDIO_FILE")"
+
+  case "$RESTORE_FORMAT" in
+    long)
+      # The committed private-source runtime remains authoritative. The verifier
+      # already proved the Drive copy is semantically identical and the MP3 hash
+      # matches it, so do not overwrite the frozen source manifest.
+      ;;
+    short)
+      # Preserve the legacy Short behavior: timing is restored from the private
+      # Drive package because Shorts do not use the committed long-form freeze.
+      cp "$DRIVE_RUNTIME_FILE" "$SOURCE_RUNTIME_FILE"
+      ;;
+    *)
+      rclone_fail "Audio restore verifier returned an unsupported format: $RESTORE_FORMAT"
+      ;;
+  esac
+fi
 
 # Quality-v2 productions may request one or more approved Telic music tracks in
 # their private audio-design.json. The private source validates the exact
