@@ -43,11 +43,23 @@ if (mode === "render-sequence") {
   throw new Error("sequenceIndex is only valid for render-sequence requests.");
 }
 
+// Public worker idempotency contains only values already present in the public
+// request. No private source, asset, render, Drive locator, or credential enters
+// this key. A successful full render owns this exact identity permanently from
+// the controller's perspective; retries of the same identity are no-ops.
+const requestKey = [
+  request.jobId,
+  request.sourceSha,
+  `r${request.revision}`,
+  mode,
+  sequenceIndex === "" ? null : `s${sequenceIndex}`,
+].filter(Boolean).join("-");
+
 const githubOutput = process.env.GITHUB_OUTPUT;
 if (githubOutput) {
   fs.appendFileSync(
     githubOutput,
-    `job_id=${request.jobId}\nsource_sha=${request.sourceSha}\nrevision=${request.revision}\nmode=${mode}\nsequence_index=${sequenceIndex}\n`,
+    `job_id=${request.jobId}\nsource_sha=${request.sourceSha}\nrevision=${request.revision}\nmode=${mode}\nsequence_index=${sequenceIndex}\nrequest_key=${requestKey}\n`,
   );
 }
 
