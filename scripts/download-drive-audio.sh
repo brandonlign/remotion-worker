@@ -43,14 +43,18 @@ if [ ! -d "$SOURCE_DIR" ]; then
 fi
 validate_job_id
 prepare_rclone_config "The Drive credential is not configured."
-use_telic_renders_root
 
 mkdir -p "$SOURCE_DIR/public/automation" "$SOURCE_DIR/automation/current"
+
+# Telic-Renders is a stable path in the authenticated private Drive. Address the
+# durable job folder directly instead of listing the Drive root to rediscover the
+# Telic-Renders provider ID on every preview run.
+VOICE_ROOT_PATH="Telic-Renders/$JOB_ID"
 
 copy_voice_artifact() {
   local name="$1"
   local destination="$2"
-  rclone copyto "gdrive:$JOB_ID/$name" "$destination" \
+  rclone copyto "gdrive:$VOICE_ROOT_PATH/$name" "$destination" \
     --config "$RCLONE_CONFIG_FILE" \
     --stats 0 \
     --log-level ERROR
