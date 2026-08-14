@@ -54,6 +54,14 @@ jobs:
           persist-credentials: false
           fetch-depth: 1
 
+      - name: Cache npm package downloads
+        uses: actions/cache@v4
+        with:
+          path: ~/.npm
+          key: telic-remotion-npm-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('private-source/package-lock.json') }}
+          restore-keys: |
+            telic-remotion-npm-${{ runner.os }}-${{ runner.arch }}-
+
       - name: Install system tools
         run: |
           sudo apt-get update -qq
