@@ -1,0 +1,50 @@
+name: Validate private Telic vNext
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/validate-private-vnext.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Check out private repair branch
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ secrets.SOURCE_REPOSITORY }}
+          ref: agent/telic-vnext-production-repair
+          token: ${{ secrets.SOURCE_REPO_TOKEN }}
+          path: private-source
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: Validate private vNext without exposing private output
+        shell: bash
+        run: |
+          set +e
+          LOG="$RUNNER_TEMP/private-vnext-validation.log"
+          (
+            cd private-source/tools/telic-vnext
+            npm install --omit=dev --ignore-scripts --no-audit --no-fund
+            node --test test/*.test.mjs
+            find src bin -name '*.mjs' -print0 | xargs -0 -n1 node --check
+            bash -n bootstrap/activate-telic-production.sh
+            bash -n bootstrap/rollback-telic-production.sh
+            bash -n bootstrap/install-legacy-compat-hook.sh
+          ) >"$LOG" 2>&1
+          code=$?
+          rm -rf private-source
+          if [ "$code" -ne 0 ]; then
+            echo "Private Telic vNext validation failed. Private diagnostics were suppressed."
+            exit 1
+          fi
+          echo "Private Telic vNext validation passed."
