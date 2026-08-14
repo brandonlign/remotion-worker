@@ -19,6 +19,23 @@ const stable = (value) => {
 const fingerprint = (value) => JSON.stringify(stable(value));
 const sha256File = async (filePath) => crypto.createHash("sha256").update(await fs.readFile(filePath)).digest("hex");
 
+const verifyLongAudio = async ({runtime, audioPath, expectedJobId = null}) => {
+  if (runtime?.format !== "long") throw new Error("Committed source runtime is not long form.");
+  if (expectedJobId && runtime.jobId !== expectedJobId) {
+    throw new Error("Committed long-form audio runtime does not match the requested job ID.");
+  }
+  const expected = String(runtime.voiceoverSha256 ?? "").trim().toLowerCase();
+  if (!SHA256_PATTERN.test(expected)) throw new Error("Committed long-form runtime has no valid voiceoverSha256 lock.");
+  const actual = await sha256File(audioPath);
+  if (actual !== expected) throw new Error("Restored long-form voiceover.mp3 does not match the committed runtime hash.");
+  return {format: "long", runtime, voiceoverSha256: actual};
+};
+
+export const verifyCommittedLongAudio = async ({sourceRuntimePath, audioPath, expectedJobId}) => {
+  const runtime = await readJson(sourceRuntimePath);
+  return verifyLongAudio({runtime, audioPath, expectedJobId});
+};
+
 export const verifyRestoredAudio = async ({sourceRuntimePath, driveRuntimePath, audioPath}) => {
   const [sourceRuntime, driveRuntime] = await Promise.all([
     readJsonOptional(sourceRuntimePath),
@@ -36,12 +53,7 @@ export const verifyRestoredAudio = async ({sourceRuntimePath, driveRuntimePath, 
     if (fingerprint(sourceRuntime) !== fingerprint(driveRuntime)) {
       throw new Error("Drive long-form audio-runtime.json drifted from the committed frozen source runtime.");
     }
-
-    const expected = String(sourceRuntime.voiceoverSha256 ?? "").trim().toLowerCase();
-    if (!SHA256_PATTERN.test(expected)) throw new Error("Committed long-form runtime has no valid voiceoverSha256 lock.");
-    const actual = await sha256File(audioPath);
-    if (actual !== expected) throw new Error("Restored long-form voiceover.mp3 does not match the committed runtime hash.");
-    return {format: "long", runtime: sourceRuntime, voiceoverSha256: actual};
+    return verifyLongAudio({runtime: sourceRuntime, audioPath});
   }
 
   if (driveRuntime?.format === "long") {
@@ -52,10 +64,20 @@ export const verifyRestoredAudio = async ({sourceRuntimePath, driveRuntimePath, 
 
 const isMain = process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url);
 if (isMain) {
-  const [sourceRuntimePath, driveRuntimePath, audioPath] = process.argv.slice(2);
-  if (!sourceRuntimePath || !driveRuntimePath || !audioPath) {
-    throw new Error("Usage: node scripts/verify-restored-audio.mjs <source-runtime.json> <drive-runtime.json> <voiceover.mp3>");
+  const args = process.argv.slice(2);
+  if (args[0] === "--committed-long") {
+    const [, sourceRuntimePath, audioPath, expectedJobId] = args;
+    if (!sourceRuntimePath || !audioPath || !expectedJobId) {
+      throw new Error("Usage: node scripts/verify-restored-audio.mjs --committed-long <source-runtime.json> <voiceover.mp3> <job-id>");
+    }
+    const result = await verifyCommittedLongAudio({sourceRuntimePath, audioPath, expectedJobId});
+    process.stdout.write(`${result.format}\n`);
+  } else {
+    const [sourceRuntimePath, driveRuntimePath, audioPath] = args;
+    if (!sourceRuntimePath || !driveRuntimePath || !audioPath) {
+      throw new Error("Usage: node scripts/verify-restored-audio.mjs <source-runtime.json> <drive-runtime.json> <voiceover.mp3>");
+    }
+    const result = await verifyRestoredAudio({sourceRuntimePath, driveRuntimePath, audioPath});
+    process.stdout.write(`${result.format}\n`);
   }
-  const result = await verifyRestoredAudio({sourceRuntimePath, driveRuntimePath, audioPath});
-  process.stdout.write(`${result.format}\n`);
 }

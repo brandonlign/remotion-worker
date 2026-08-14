@@ -4,7 +4,7 @@ import crypto from "node:crypto";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import {verifyRestoredAudio} from "./verify-restored-audio.mjs";
+import {verifyCommittedLongAudio, verifyRestoredAudio} from "./verify-restored-audio.mjs";
 
 const temp = await fs.mkdtemp(path.join(os.tmpdir(), "telic-restored-audio-"));
 try {
@@ -33,6 +33,21 @@ try {
   assert.equal(verified.format, "long");
   assert.equal(verified.voiceoverSha256, hash);
 
+  // Sequence previews do not need to download alignment.json or a duplicate
+  // audio-runtime.json. The committed runtime plus exact MP3 hash and job ID are
+  // sufficient to prove the restored voiceover is the frozen one.
+  const previewVerified = await verifyCommittedLongAudio({
+    sourceRuntimePath,
+    audioPath,
+    expectedJobId: runtime.jobId,
+  });
+  assert.equal(previewVerified.format, "long");
+  assert.equal(previewVerified.voiceoverSha256, hash);
+  await assert.rejects(
+    verifyCommittedLongAudio({sourceRuntimePath, audioPath, expectedJobId: "different-job"}),
+    /does not match the requested job ID/,
+  );
+
   await fs.writeFile(driveRuntimePath, `${JSON.stringify({...runtime, totalDurationInFrames: 9001}, null, 2)}\n`);
   await assert.rejects(
     verifyRestoredAudio({sourceRuntimePath, driveRuntimePath, audioPath}),
@@ -60,6 +75,10 @@ try {
     verifyRestoredAudio({sourceRuntimePath, driveRuntimePath, audioPath}),
     /does not match the committed runtime hash/,
   );
+  await assert.rejects(
+    verifyCommittedLongAudio({sourceRuntimePath, audioPath, expectedJobId: runtime.jobId}),
+    /does not match the committed runtime hash/,
+  );
 
   await fs.writeFile(audioPath, bytes);
   const noHash = {...runtime};
@@ -85,8 +104,15 @@ try {
   const shortResult = await verifyRestoredAudio({sourceRuntimePath, driveRuntimePath, audioPath});
   assert.equal(shortResult.format, "short");
   assert.deepEqual(shortResult.runtime, shortDrive);
+
+  const restoreScript = await fs.readFile(new URL("./download-drive-audio.sh", import.meta.url), "utf8");
+  assert.match(restoreScript, /REQUEST_FILE="\$WORKER_ROOT\/jobs\/request\.json"/);
+  assert.match(restoreScript, /if \[ "\$RESTORE_MODE" = "render-sequence" \]; then/);
+  assert.match(restoreScript, /--committed-long/);
+  assert.match(restoreScript, /copy_voice_artifact alignment\.json/);
+  assert.match(restoreScript, /copy_voice_artifact audio-runtime\.json/);
 } finally {
   await fs.rm(temp, {recursive: true, force: true});
 }
 
-console.log("Frozen long-form Drive audio restore tests passed.");
+console.log("Frozen long-form full and lightweight preview audio restore tests passed.");
