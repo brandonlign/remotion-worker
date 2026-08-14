@@ -111,6 +111,15 @@ try {
   assert.match(restoreScript, /--committed-long/);
   assert.match(restoreScript, /copy_voice_artifact alignment\.json/);
   assert.match(restoreScript, /copy_voice_artifact audio-runtime\.json/);
+
+  // Voice restore should address the durable job directly by Drive path. This
+  // avoids a root listing/provider-ID discovery step and persists no private
+  // locator in GitHub, Actions cache, request JSON, or logs.
+  assert.match(restoreScript, /VOICE_ROOT_PATH="Telic-Renders\/\$JOB_ID"/);
+  assert.match(restoreScript, /gdrive:\$VOICE_ROOT_PATH\/\$name/);
+  assert.doesNotMatch(restoreScript, /use_telic_renders_root/);
+  assert.doesNotMatch(restoreScript, /TELIC_AUDIO_LOCATOR_DIR/);
+  assert.doesNotMatch(restoreScript, /backend copyid/);
 } finally {
   await fs.rm(temp, {recursive: true, force: true});
 }
