@@ -41,7 +41,16 @@ node "$WORKER_ROOT/scripts/validate-private-render-contract.mjs" \
 
 cd "$SOURCE_DIR"
 bash -o pipefail -c "$INSTALL_COMMAND"
-bash -o pipefail -c "$PREPARE_COMMAND"
+if [ "$PREPARE_COMMAND" = "npm run long:prepare-window" ] \
+  && [ "${GITHUB_ACTIONS:-}" = "true" ] \
+  && [ "${GITHUB_WORKFLOW:-}" = "Render private Remotion source" ]; then
+  # The sequence step in this workflow runs only after audio restore succeeds.
+  # That restore already checked the frozen runtime and exact MP3 SHA-256.
+  node scripts/autopilot/prepare-long-window.mjs
+else
+  # Keep the original integrity gate for direct/manual/legacy invocation.
+  bash -o pipefail -c "$PREPARE_COMMAND"
+fi
 # Sequence previews need video-code safety, not the entire controller/installer
 # regression suite. Keep ESLint over all src plus full TypeScript checking here;
 # the Remotion render below is the final compilation/runtime check for this window.
