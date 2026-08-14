@@ -8,8 +8,26 @@ fi
 
 SOURCE_DIR="$1"
 JOB_ID="$2"
-RESTORE_MODE="${3:-render}"
 WORKER_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+REQUEST_FILE="$WORKER_ROOT/jobs/request.json"
+REQUEST_MODE=""
+if [ "$#" -eq 3 ]; then
+  REQUEST_MODE="$3"
+elif [ -s "$REQUEST_FILE" ]; then
+  REQUEST_MODE="$(node - "$REQUEST_FILE" "$JOB_ID" <<'NODE'
+const fs = require("node:fs");
+const [requestFile, expectedJobId] = process.argv.slice(2);
+try {
+  const request = JSON.parse(fs.readFileSync(requestFile, "utf8"));
+  if (request.jobId === expectedJobId && ["render", "render-sequence"].includes(request.mode)) {
+    process.stdout.write(request.mode);
+  }
+} catch {}
+NODE
+)"
+fi
+RESTORE_MODE="${REQUEST_MODE:-render}"
+
 source "$WORKER_ROOT/scripts/lib/rclone-common.sh"
 DRIVE_RUNTIME_FILE="$(mktemp)"
 MUSIC_ROWS_FILE="$(mktemp)"
