@@ -8,8 +8,8 @@ const ffmpegInvocations = script.match(/^  run_media_tool ffmpeg \\/gm) ?? [];
 assert.equal(ffmpegInvocations.length, 1, "the optional review-MP4 transcode should remain isolated behind the reuse guard");
 assert.equal((script.match(/^run_media_tool ffmpeg \\/gm) ?? []).length, 1, "still review assets should share exactly one ffmpeg decode");
 assert.equal((script.match(/^run_media_tool ffprobe \\/gm) ?? []).length, 1, "review packaging should use one ffprobe invocation");
-assert.doesNotMatch(script, /^ffmpeg \\/m, "preview review packaging must not require system ffmpeg directly");
-assert.doesNotMatch(script, /^ffprobe \\/m, "preview review packaging must not require system ffprobe directly");
+assert.doesNotMatch(script, /^ffmpeg \\/m, "review packaging should keep the media-tool wrapper");
+assert.doesNotMatch(script, /^ffprobe \\/m, "review packaging should keep the media-tool wrapper");
 assert.match(script, /TELIC_REMOTION_BIN/);
 assert.match(script, /TELIC_REUSE_SOURCE_AS_REVIEW/);
 assert.match(script, /if \[ "\$REUSE_SOURCE_AS_REVIEW" = "1" \]; then/);
@@ -23,9 +23,8 @@ assert.match(script, /-preset veryfast/);
 assert.match(script, /-crf 28/);
 assert.match(script, /-b:a 96k/);
 
-// The bundled FFmpeg path must use explicit named options throughout the still
-// filter chain. This preserves the exact cadence/layout while avoiding shorthand
-// parser failures observed in production.
+// The still filter chain keeps explicit named options. This preserves the exact
+// cadence/layout and is valid on the full FFmpeg preview bundle.
 assert.match(script, /fps=fps=0\.5,split=outputs=2\[keyframes\]\[sheet\]/);
 assert.doesNotMatch(script, /fps=1\/2/);
 assert.doesNotMatch(script, /split=2\[/);
@@ -42,7 +41,7 @@ const sequence = fs.readFileSync(new URL("./run-render-sequence.sh", import.meta
 assert.match(sequence, /PREVIEW_VIDEO="\$OUTPUT_DIR\/review\.mp4"/);
 assert.doesNotMatch(sequence, /sequence-preview\.mp4/);
 assert.match(sequence, /TELIC_REUSE_SOURCE_AS_REVIEW=1/);
-assert.match(sequence, /TELIC_REMOTION_BIN="\$REMOTION_BIN"/);
+assert.doesNotMatch(sequence, /TELIC_REMOTION_BIN=/, "sequence review derivatives must not use Remotion's minimal FFmpeg bundle");
 assert.match(sequence, /create-review-assets\.sh/);
 
 const bootstrap = fs.readFileSync(new URL("./ensure-public-rclone.sh", import.meta.url), "utf8");
@@ -56,7 +55,11 @@ const workflow = fs.readFileSync(new URL("../.github/workflows/render.yml", impo
 assert.match(workflow, /name: Cache public rclone binary/);
 assert.match(workflow, /key: telic-rclone-v1\.75\.0-\$\{\{ runner\.os \}\}-\$\{\{ runner\.arch \}\}/);
 assert.match(workflow, /source scripts\/ensure-public-rclone\.sh/);
-assert.match(workflow, /RENDER_MODE" != "render-sequence"/);
+assert.match(workflow, /name: Cache public full FFmpeg preview tools/);
+assert.match(workflow, /key: telic-ffmpeg-n8\.1-btbn-20260813-\$\{\{ runner\.os \}\}-\$\{\{ runner\.arch \}\}/);
+assert.match(workflow, /if: steps\.request\.outputs\.mode == 'render-sequence'/);
+assert.match(workflow, /source scripts\/ensure-public-ffmpeg\.sh/);
+assert.doesNotMatch(workflow, /Remotion dependency after npm ci/);
 assert.doesNotMatch(workflow, /packages\+=\(rclone\)/);
 
-console.log("Review assets preserve full-render outputs while render-sequence reuses its low-quality MP4 directly and uses explicit bundled-FFmpeg filter options.");
+console.log("Review assets preserve full-render outputs while render-sequence reuses its low-quality MP4 and uses the cached full FFmpeg toolchain for stills.");

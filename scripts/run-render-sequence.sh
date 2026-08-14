@@ -85,11 +85,10 @@ mkdir -p "$OUTPUT_DIR"
   --frames="${START_FRAME}-${RENDER_END_FRAME}" \
   --log=error
 
-# Remotion v4 ships its own pinned FFmpeg/FFprobe binaries. Reuse those for the
-# remaining metadata/still review derivatives. The review MP4 itself is already
-# complete, so skip the redundant second video transcode.
+# The workflow places a pinned full FFmpeg/FFprobe bundle on PATH for sequence
+# review derivatives. Keep the rendered MP4 itself as the canonical review
+# video and generate only metadata/stills from that full toolchain.
 TELIC_REUSE_SOURCE_AS_REVIEW=1 \
-TELIC_REMOTION_BIN="$REMOTION_BIN" \
   bash "$WORKER_ROOT/scripts/create-review-assets.sh" "$PREVIEW_VIDEO" "$OUTPUT_DIR"
 
 node - "$OUTPUT_DIR/status.json" "$JOB_ID" "$SOURCE_SHA" "$SEQUENCE_INDEX" "$START_FRAME" "$END_FRAME" <<'NODE'
