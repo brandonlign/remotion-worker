@@ -7,19 +7,18 @@ const filePath = process.argv[2];
 if (!filePath || !fs.existsSync(filePath)) process.exit(0);
 
 const audioDesign = JSON.parse(fs.readFileSync(filePath, "utf8"));
-if (audioDesign.qualityVersion !== 2) process.exit(0);
-
 const candidates = Array.isArray(audioDesign.musicBeds)
   ? audioDesign.musicBeds
   : audioDesign.music
     ? [audioDesign.music]
     : [];
 
+const ALLOWED_PRIVATE_LIBRARIES = new Set(["telic-original-v1", "channel-library-v1"]);
 const rows = [];
 const seen = new Set();
 for (const music of candidates) {
-  if (music?.library !== "telic-original-v1") {
-    throw new Error("Private quality-v2 audio design did not request the Telic music library.");
+  if (!ALLOWED_PRIVATE_LIBRARIES.has(music?.library)) {
+    throw new Error("Private music request did not declare an approved channel-owned library.");
   }
   for (const [field, value] of [
     ["driveFolderId", music.driveFolderId],
