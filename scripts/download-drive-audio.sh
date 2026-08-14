@@ -43,7 +43,6 @@ if [ ! -d "$SOURCE_DIR" ]; then
 fi
 validate_job_id
 prepare_rclone_config "The Drive credential is not configured."
-use_telic_renders_root
 
 mkdir -p "$SOURCE_DIR/public/automation" "$SOURCE_DIR/automation/current"
 
@@ -56,11 +55,79 @@ copy_voice_artifact() {
     --log-level ERROR
 }
 
+valid_drive_file_id() {
+  [[ "$1" =~ ^[A-Za-z0-9_-]{10,}$ ]]
+}
+
+AUDIO_LOCATOR_DIR="${TELIC_AUDIO_LOCATOR_DIR:-}"
+AUDIO_LOCATOR_FILE=""
+if [ -n "$AUDIO_LOCATOR_DIR" ]; then
+  AUDIO_LOCATOR_FILE="$AUDIO_LOCATOR_DIR/voiceover.id"
+fi
+
+read_cached_voiceover_id() {
+  local value=""
+  if [ -n "$AUDIO_LOCATOR_FILE" ] && [ -s "$AUDIO_LOCATOR_FILE" ]; then
+    IFS= read -r value < "$AUDIO_LOCATOR_FILE" || true
+    if valid_drive_file_id "$value"; then
+      printf '%s' "$value"
+      return 0
+    fi
+  fi
+  return 1
+}
+
+write_cached_voiceover_id() {
+  local value="$1"
+  if [ -z "$AUDIO_LOCATOR_FILE" ] || ! valid_drive_file_id "$value"; then
+    return 0
+  fi
+  mkdir -p "$AUDIO_LOCATOR_DIR"
+  printf '%s\n' "$value" > "$AUDIO_LOCATOR_FILE"
+  chmod 600 "$AUDIO_LOCATOR_FILE"
+}
+
+resolve_voiceover_id_from_path() {
+  rclone lsjson "gdrive:$JOB_ID/voiceover.mp3" \
+    --config "$RCLONE_CONFIG_FILE" \
+    --stat \
+    --files-only \
+    --log-level ERROR | python3 -c '
+import json, sys
+item = json.load(sys.stdin)
+if not isinstance(item, dict) or not item.get("ID") or item.get("IsDir"):
+    raise SystemExit(65)
+print(item["ID"])
+'
+}
+
+copy_voiceover_by_id() {
+  local drive_file_id="$1"
+  local destination="$2"
+  rclone backend copyid gdrive: "$drive_file_id" "$destination" \
+    --config "$RCLONE_CONFIG_FILE" \
+    --log-level ERROR \
+    >/dev/null
+}
+
 AUDIO_FILE="$SOURCE_DIR/public/automation/voiceover.mp3"
 ALIGNMENT_FILE="$SOURCE_DIR/automation/current/alignment.json"
 SOURCE_RUNTIME_FILE="$SOURCE_DIR/automation/current/audio-runtime.json"
 
-copy_voice_artifact voiceover.mp3 "$AUDIO_FILE"
+VOICEOVER_DRIVE_ID="$(read_cached_voiceover_id || true)"
+if [ -n "$VOICEOVER_DRIVE_ID" ]; then
+  # Fast path: the private Actions cache carries only the opaque provider ID.
+  # copyid lets Drive fetch the exact file without resolving Telic-Renders and
+  # the job path on every preview run.
+  copy_voiceover_by_id "$VOICEOVER_DRIVE_ID" "$AUDIO_FILE"
+else
+  # Compatibility/fallback path for older jobs or the first run after this
+  # optimization. It seeds the private locator cache for subsequent previews.
+  use_telic_renders_root
+  copy_voice_artifact voiceover.mp3 "$AUDIO_FILE"
+  VOICEOVER_DRIVE_ID="$(resolve_voiceover_id_from_path)"
+  write_cached_voiceover_id "$VOICEOVER_DRIVE_ID"
+fi
 
 if [ "$RESTORE_MODE" = "render-sequence" ]; then
   if [ ! -s "$AUDIO_FILE" ]; then
@@ -76,6 +143,11 @@ if [ "$RESTORE_MODE" = "render-sequence" ]; then
     "$JOB_ID" \
     >/dev/null
 else
+  # Full renders still restore the complete timing package. If the voiceover used
+  # the direct-ID fast path, resolve Telic-Renders only now for these extra files.
+  if [ -n "$VOICEOVER_DRIVE_ID" ]; then
+    use_telic_renders_root
+  fi
   copy_voice_artifact alignment.json "$ALIGNMENT_FILE"
   copy_voice_artifact audio-runtime.json "$DRIVE_RUNTIME_FILE"
 
