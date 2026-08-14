@@ -20,64 +20,23 @@ jobs:
     timeout-minutes: 15
     env:
       RCLONE_CONFIG_B64: ${{ secrets.RCLONE_CONFIG_B64 }}
-      SOURCE_REPOSITORY: ${{ secrets.SOURCE_REPOSITORY }}
-      SOURCE_REPO_TOKEN: ${{ secrets.SOURCE_REPO_TOKEN }}
+      JOB_ID: telic-web-202608131318-0ed7a0
+      EXPECTED_OLD_PUBLISH_AT: 2026-08-14T16:00:00.000Z
+      TARGET_PUBLISH_AT: 2026-08-15T13:00:00.000Z
     steps:
       - name: Check out worker transport tooling
         uses: actions/checkout@v4
 
-      - name: Repair only the active Drive publish timestamp
+      - name: Repair only the stale Drive publish timestamp
         shell: bash
         run: |
           set -Eeuo pipefail
           test -n "$RCLONE_CONFIG_B64" || { echo "Drive transport secret is unavailable."; exit 78; }
-          test -n "$SOURCE_REPOSITORY" || { echo "Private source locator is unavailable."; exit 78; }
-          test -n "$SOURCE_REPO_TOKEN" || { echo "Private source read token is unavailable."; exit 78; }
 
           source scripts/ensure-public-rclone.sh
           source scripts/lib/rclone-common.sh
           prepare_rclone_config "The Drive upload secret is not configured."
           trap rclone_cleanup EXIT
-
-          control="$RUNNER_TEMP/telic-control.json"
-          curl -fsSL \
-            -H "Authorization: Bearer $SOURCE_REPO_TOKEN" \
-            -H "Accept: application/vnd.github+json" \
-            "https://api.github.com/repos/$SOURCE_REPOSITORY/issues/220" \
-            > "$control"
-
-          eval "$(python3 - "$control" <<'PY'
-          import json, re, shlex, sys
-          from datetime import datetime
-          from zoneinfo import ZoneInfo
-
-          issue = json.load(open(sys.argv[1], encoding='utf-8'))
-          body = issue.get('body') or ''
-          match = re.search(r'<!-- TELIC_CONTROL_STATE_START -->\s*```json\s*(\{.*?\})\s*```\s*<!-- TELIC_CONTROL_STATE_END -->', body, re.S)
-          if not match:
-              raise SystemExit('Private control state block is unavailable.')
-          state = json.loads(match.group(1))
-          active = state.get('controller', {}).get('state', {}).get('activeJob') or {}
-          if active.get('issueNumber') != 237:
-              raise SystemExit('Refusing repair: the expected active publishing issue is no longer current.')
-          if active.get('phase') != 'publishing' or active.get('driveVerified') is not True:
-              raise SystemExit('Refusing repair: the active job is not at the Drive-verified publishing boundary.')
-          if active.get('youtubeUploaded') or active.get('youtubeScheduled') or active.get('youtubeVerified'):
-              raise SystemExit('Refusing repair: YouTube work already began.')
-          job_id = active.get('jobId') or ''
-          publish_at = active.get('publishAt') or ''
-          if not re.fullmatch(r'[a-z0-9][a-z0-9-]{5,63}', job_id):
-              raise SystemExit('Active job id failed validation.')
-          try:
-              parsed = datetime.fromisoformat(publish_at.replace('Z', '+00:00')).astimezone(ZoneInfo('America/New_York'))
-          except Exception as exc:
-              raise SystemExit('Active publish target is invalid.') from exc
-          if parsed.hour != 9 or parsed.minute != 0:
-              raise SystemExit('Refusing repair: active long-form publish target is not 09:00 New York.')
-          print('JOB_ID=' + shlex.quote(job_id))
-          print('PUBLISH_AT=' + shlex.quote(publish_at))
-          PY
-          )"
 
           work="$RUNNER_TEMP/telic-publish-repair"
           mkdir -p "$work"
@@ -85,22 +44,24 @@ jobs:
           rclone copyto "$remote/publish.json" "$work/publish.before.json" --config "$RCLONE_CONFIG_FILE" --log-level ERROR
           rclone copyto "$remote/checksums.txt" "$work/checksums.before.txt" --config "$RCLONE_CONFIG_FILE" --log-level ERROR
 
-          python3 - "$work/publish.before.json" "$work/publish.after.json" "$work/checksums.before.txt" "$work/checksums.after.txt" "$PUBLISH_AT" <<'PY'
+          python3 - "$work/publish.before.json" "$work/publish.after.json" "$work/checksums.before.txt" "$work/checksums.after.txt" "$JOB_ID" "$EXPECTED_OLD_PUBLISH_AT" "$TARGET_PUBLISH_AT" <<'PY'
           import hashlib, json, pathlib, re, sys
 
-          before_path, after_path, checksums_before_path, checksums_after_path, target = sys.argv[1:]
+          before_path, after_path, checksums_before_path, checksums_after_path, expected_job, expected_old, target = sys.argv[1:]
           before = json.loads(pathlib.Path(before_path).read_text(encoding='utf-8'))
+          if before.get('jobId') != expected_job:
+              raise SystemExit('Refusing repair: Drive manifest belongs to a different job.')
+          if before.get('publishAt') != expected_old:
+              raise SystemExit('Refusing repair: Drive publish timestamp is no longer the known stale value.')
           source_sha = before.get('sourceSha')
           if not isinstance(source_sha, str) or not re.fullmatch(r'[0-9a-f]{40}', source_sha):
               raise SystemExit('Drive publish manifest has no valid rendered source SHA.')
-          if before.get('publishAt') == target:
-              after = before
-          else:
-              after = dict(before)
-              after['publishAt'] = target
+
+          after = dict(before)
+          after['publishAt'] = target
           pathlib.Path(after_path).write_text(json.dumps(after, indent=2) + '\n', encoding='utf-8')
           roundtrip = json.loads(pathlib.Path(after_path).read_text(encoding='utf-8'))
-          if roundtrip.get('sourceSha') != source_sha or roundtrip.get('publishAt') != target:
+          if roundtrip.get('sourceSha') != source_sha or roundtrip.get('jobId') != expected_job or roundtrip.get('publishAt') != target:
               raise SystemExit('Publish manifest repair changed protected metadata.')
 
           digest = hashlib.sha256(pathlib.Path(after_path).read_bytes()).hexdigest()
@@ -119,13 +80,13 @@ jobs:
 
           rclone copyto "$remote/publish.json" "$work/publish.verify.json" --config "$RCLONE_CONFIG_FILE" --log-level ERROR
           rclone copyto "$remote/checksums.txt" "$work/checksums.verify.txt" --config "$RCLONE_CONFIG_FILE" --log-level ERROR
-          python3 - "$work/publish.before.json" "$work/publish.verify.json" "$work/checksums.verify.txt" "$PUBLISH_AT" <<'PY'
+          python3 - "$work/publish.before.json" "$work/publish.verify.json" "$work/checksums.verify.txt" "$JOB_ID" "$TARGET_PUBLISH_AT" <<'PY'
           import hashlib, json, pathlib, re, sys
-          before_path, verify_path, checksums_path, target = sys.argv[1:]
+          before_path, verify_path, checksums_path, expected_job, target = sys.argv[1:]
           before = json.loads(pathlib.Path(before_path).read_text(encoding='utf-8'))
           verify = json.loads(pathlib.Path(verify_path).read_text(encoding='utf-8'))
-          if verify.get('publishAt') != target:
-              raise SystemExit('Drive publishAt verification failed.')
+          if verify.get('jobId') != expected_job or verify.get('publishAt') != target:
+              raise SystemExit('Drive publish metadata verification failed.')
           if verify.get('sourceSha') != before.get('sourceSha'):
               raise SystemExit('Rendered source SHA changed during metadata repair.')
           digest = hashlib.sha256(pathlib.Path(verify_path).read_bytes()).hexdigest()
@@ -135,5 +96,5 @@ jobs:
               raise SystemExit('Drive publish.json checksum verification failed.')
           PY
 
-          rm -rf "$work" "$control"
+          rm -rf "$work"
           echo "Drive publishing metadata repaired and checksum verified."
