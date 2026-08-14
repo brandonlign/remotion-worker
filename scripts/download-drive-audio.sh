@@ -29,6 +29,7 @@ fi
 RESTORE_MODE="${REQUEST_MODE:-render}"
 
 source "$WORKER_ROOT/scripts/lib/rclone-common.sh"
+source "$WORKER_ROOT/scripts/lib/channel-storage.sh"
 DRIVE_RUNTIME_FILE="$(mktemp)"
 MUSIC_ROWS_FILE="$(mktemp)"
 trap 'rm -f "${DRIVE_RUNTIME_FILE}" "${MUSIC_ROWS_FILE}"; rclone_cleanup' EXIT
@@ -46,10 +47,9 @@ prepare_rclone_config "The Drive credential is not configured."
 
 mkdir -p "$SOURCE_DIR/public/automation" "$SOURCE_DIR/automation/current"
 
-# Telic-Renders is a stable path in the authenticated private Drive. Address the
-# durable job folder directly instead of listing the Drive root to rediscover the
-# Telic-Renders provider ID on every preview run.
-VOICE_ROOT_PATH="Telic-Renders/$JOB_ID"
+# The durable voice package follows the same channel-owned render root as the
+# final output. Never accept an arbitrary Drive locator from a public request.
+VOICE_ROOT_PATH="$(render_root_for_job_id "$JOB_ID")/$JOB_ID"
 
 copy_voice_artifact() {
   local name="$1"
@@ -70,9 +70,6 @@ if [ "$RESTORE_MODE" = "render-sequence" ]; then
   if [ ! -s "$AUDIO_FILE" ]; then
     rclone_fail "The prepared private voiceover is incomplete."
   fi
-  # Sequence previews already have the frozen long-form runtime in private source.
-  # Verify the downloaded MP3 directly against that committed SHA lock and job ID;
-  # alignment.json and a duplicate Drive runtime are not needed to render a window.
   node "$WORKER_ROOT/scripts/verify-restored-audio.mjs" \
     --committed-long \
     "$SOURCE_RUNTIME_FILE" \
@@ -96,13 +93,8 @@ else
 
   case "$RESTORE_FORMAT" in
     long)
-      # The committed private-source runtime remains authoritative. The verifier
-      # already proved the Drive copy is semantically identical and the MP3 hash
-      # matches it, so do not overwrite the frozen source manifest.
       ;;
     short)
-      # Preserve the legacy Short behavior: timing is restored from the private
-      # Drive package because Shorts do not use the committed long-form freeze.
       cp "$DRIVE_RUNTIME_FILE" "$SOURCE_RUNTIME_FILE"
       ;;
     *)
@@ -111,10 +103,9 @@ else
   esac
 fi
 
-# Quality-v2 productions may request one or more approved Telic music tracks in
-# their private audio-design.json. The private source validates the exact
-# library allowlist. This worker only transports the requested Drive files and
-# never commits or logs the proprietary assets publicly.
+# Productions may request approved channel music through private audio-design.json.
+# The source validates the exact allowlist. This worker transports only those
+# requested Drive files and never commits or logs proprietary media publicly.
 MUSIC_REQUEST_FILE="$SOURCE_DIR/automation/current/audio-design.json"
 if ! node "$WORKER_ROOT/scripts/read-private-music-request.mjs" "$MUSIC_REQUEST_FILE" > "$MUSIC_ROWS_FILE"; then
   rclone_fail "The private music restore request could not be validated."
@@ -140,7 +131,7 @@ if not isinstance(item, dict) or not item.get("ID") or item.get("IsDir"):
 print(item["ID"])
 ')"
   if [ "$actual_id" != "$drive_file_id" ]; then
-    rclone_fail "The selected private Telic music file failed provider identity verification."
+    rclone_fail "The selected private channel music file failed provider identity verification."
   fi
 
   destination="$SOURCE_DIR/$asset_path"
@@ -150,11 +141,11 @@ print(item["ID"])
     --stats 0 \
     --log-level ERROR
   if [ ! -s "$destination" ]; then
-    rclone_fail "A selected private Telic music file was not restored."
+    rclone_fail "A selected private channel music file was not restored."
   fi
   RESTORED_MUSIC_COUNT=$((RESTORED_MUSIC_COUNT + 1))
 done
 
 if [ "$RESTORED_MUSIC_COUNT" -gt 0 ]; then
-  echo "Restored $RESTORED_MUSIC_COUNT private Telic music asset(s)."
+  echo "Restored $RESTORED_MUSIC_COUNT private channel music asset(s)."
 fi

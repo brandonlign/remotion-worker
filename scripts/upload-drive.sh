@@ -10,6 +10,7 @@ RESULT_DIR="$1"
 JOB_ID="$2"
 WORKER_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 source "$WORKER_ROOT/scripts/lib/rclone-common.sh"
+source "$WORKER_ROOT/scripts/lib/channel-storage.sh"
 trap rclone_cleanup EXIT
 
 if [ ! -d "$RESULT_DIR" ]; then
@@ -41,11 +42,9 @@ then
   exit 65
 fi
 
-# Telic-Renders is a stable path in the authenticated private Drive. Address it
-# directly instead of listing the Drive root to rediscover its provider ID on
-# every delivery. Keep the existing duplicate-job-folder guard scoped inside
-# Telic-Renders before writing anything.
-RENDER_ROOT_PATH="Telic-Renders"
+# Storage routing is derived from the immutable channel prefix in the durable job
+# ID. The worker never accepts an arbitrary Drive path from a public render PR.
+RENDER_ROOT_PATH="$(render_root_for_job_id "$JOB_ID")"
 JOB_TARGET_PATH="$RENDER_ROOT_PATH/$JOB_ID"
 
 DUPLICATE_JOB_FOLDERS="$(
