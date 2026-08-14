@@ -69,6 +69,13 @@ jobs:
           path: ~/.cache/telic-tools/rclone-v1.75.0
           key: telic-rclone-v1.75.0-${{ runner.os }}-${{ runner.arch }}
 
+      - name: Cache public full FFmpeg preview tools
+        if: steps.request.outputs.mode == 'render-sequence'
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/telic-tools/ffmpeg-n8.1-btbn-20260813
+          key: telic-ffmpeg-n8.1-btbn-20260813-${{ runner.os }}-${{ runner.arch }}
+
       - name: Ensure required system tools
         shell: bash
         env:
@@ -83,10 +90,13 @@ jobs:
 
           packages=()
 
-          # Window previews reuse the FFmpeg/FFprobe bundled with the exact
-          # private-source Remotion dependency after npm ci. Keep system FFmpeg
-          # for voice-prep and full-render compatibility only.
-          if [[ "$RENDER_MODE" != "render-sequence" ]] && ! command -v ffmpeg >/dev/null 2>&1; then
+          # Window previews need a full FFmpeg build for review stills. Use the
+          # pinned/checksummed public bundle instead of Remotion's intentionally
+          # minimal bundled FFmpeg. Voice-prep and final render retain the
+          # distro FFmpeg compatibility path.
+          if [[ "$RENDER_MODE" == "render-sequence" ]]; then
+            source scripts/ensure-public-ffmpeg.sh
+          elif ! command -v ffmpeg >/dev/null 2>&1; then
             packages+=(ffmpeg)
           fi
           if [[ "$RENDER_MODE" == "voice-prep" ]] && ! python3 -c 'import venv' >/dev/null 2>&1; then
