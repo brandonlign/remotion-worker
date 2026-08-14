@@ -8,15 +8,34 @@ fi
 
 VIDEO="$1"
 OUTPUT_DIR="$2"
+REMOTION_BIN="${TELIC_REMOTION_BIN:-}"
 
 if [ ! -s "$VIDEO" ]; then
   echo "Rendered video is missing or empty." >&2
   exit 66
 fi
 
+run_media_tool() {
+  local tool="$1"
+  shift
+  case "$tool" in
+    ffmpeg|ffprobe) ;;
+    *)
+      echo "Unsupported media tool: $tool" >&2
+      return 64
+      ;;
+  esac
+
+  if [ -n "$REMOTION_BIN" ] && [ -x "$REMOTION_BIN" ]; then
+    "$REMOTION_BIN" "$tool" "$@"
+  else
+    "$tool" "$@"
+  fi
+}
+
 mkdir -p "$OUTPUT_DIR/keyframes"
 
-ffprobe \
+run_media_tool ffprobe \
   -v error \
   -show_format \
   -show_streams \
@@ -24,7 +43,7 @@ ffprobe \
   "$VIDEO" \
   > "$OUTPUT_DIR/media-metadata.json"
 
-ffmpeg \
+run_media_tool ffmpeg \
   -hide_banner \
   -loglevel error \
   -y \
@@ -42,7 +61,7 @@ ffmpeg \
 # one frame every two seconds is shared before splitting into the original
 # keyframe and contact-sheet scales, preserving the existing review cadence and
 # image quality while avoiding a redundant full-video decode.
-ffmpeg \
+run_media_tool ffmpeg \
   -hide_banner \
   -loglevel error \
   -y \

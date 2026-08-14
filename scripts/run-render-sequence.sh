@@ -82,7 +82,11 @@ mkdir -p "$OUTPUT_DIR"
   --frames="${START_FRAME}-${RENDER_END_FRAME}" \
   --log=error
 
-bash "$WORKER_ROOT/scripts/create-review-assets.sh" "$PREVIEW_VIDEO" "$OUTPUT_DIR"
+# Remotion v4 ships its own pinned FFmpeg/FFprobe binaries. Reuse those for
+# preview-only review derivatives so render-sequence jobs do not need a system
+# FFmpeg installation. Full renders keep their existing compatibility path.
+TELIC_REMOTION_BIN="$REMOTION_BIN" \
+  bash "$WORKER_ROOT/scripts/create-review-assets.sh" "$PREVIEW_VIDEO" "$OUTPUT_DIR"
 
 node - "$OUTPUT_DIR/status.json" "$JOB_ID" "$SOURCE_SHA" "$SEQUENCE_INDEX" "$START_FRAME" "$END_FRAME" <<'NODE'
 const fs = require("node:fs");
