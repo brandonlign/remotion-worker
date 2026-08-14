@@ -11,7 +11,7 @@ permissions:
 jobs:
   validate:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 8
     steps:
       - name: Check out worker
         uses: actions/checkout@v4
@@ -23,3 +23,19 @@ jobs:
 
       - name: Validate worker files
         run: npm run check
+
+      - name: Smoke pinned full FFmpeg bootstrap
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          source scripts/ensure-public-ffmpeg.sh
+          expected="$HOME/.cache/telic-tools/ffmpeg-n8.1-btbn-20260813/bin/ffmpeg"
+          actual="$(command -v ffmpeg)"
+          if [ "$actual" != "$expected" ]; then
+            echo "Pinned FFmpeg fast path was not used: $actual" >&2
+            exit 1
+          fi
+          for filter in fps tile split scale; do
+            ffmpeg -hide_banner -filters 2>/dev/null | grep -Eq "[[:space:]]${filter}[[:space:]]"
+          done
+          ffprobe -hide_banner -version | head -n 1
