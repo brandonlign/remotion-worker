@@ -23,7 +23,10 @@ assert.match(script, /-preset veryfast/);
 assert.match(script, /-crf 28/);
 assert.match(script, /-b:a 96k/);
 
-assert.match(script, /fps=1\/2,split=2\[keyframes\]\[sheet\]/);
+// 0.5 fps is exactly one still every two seconds, but avoids the rational-form
+// parser incompatibility observed through Remotion's bundled FFmpeg wrapper.
+assert.match(script, /fps=fps=0\.5,split=2\[keyframes\]\[sheet\]/);
+assert.doesNotMatch(script, /fps=1\/2/);
 assert.match(script, /\[keyframes\]scale=360:-2\[keyframes_out\]/);
 assert.match(script, /\[sheet\]scale=210:-2,tile=5x4:padding=8:margin=8\[sheet_out\]/);
 assert.match(script, /-map "\[keyframes_out\]"/);
@@ -53,4 +56,4 @@ assert.match(workflow, /source scripts\/ensure-public-rclone\.sh/);
 assert.match(workflow, /RENDER_MODE" != "render-sequence"/);
 assert.doesNotMatch(workflow, /packages\+=\(rclone\)/);
 
-console.log("Review assets preserve full-render outputs while render-sequence reuses its low-quality MP4 directly and keeps one shared stills decode.");
+console.log("Review assets preserve full-render outputs while render-sequence reuses its low-quality MP4 directly and keeps one compatible shared stills decode.");

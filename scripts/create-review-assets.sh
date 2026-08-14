@@ -69,15 +69,14 @@ else
 fi
 
 # Decode the video only once for both still-image review products. Sampling at
-# one frame every two seconds is shared before splitting into the original
-# keyframe and contact-sheet scales, preserving the existing review cadence and
-# image quality while avoiding a redundant full-video decode.
+# 0.5 fps is exactly one frame every two seconds and avoids the rational-form
+# parser incompatibility seen in Remotion's bundled FFmpeg wrapper.
 run_media_tool ffmpeg \
   -hide_banner \
   -loglevel error \
   -y \
   -i "$VIDEO" \
-  -filter_complex "[0:v]fps=1/2,split=2[keyframes][sheet];[keyframes]scale=360:-2[keyframes_out];[sheet]scale=210:-2,tile=5x4:padding=8:margin=8[sheet_out]" \
+  -filter_complex "[0:v]fps=fps=0.5,split=2[keyframes][sheet];[keyframes]scale=360:-2[keyframes_out];[sheet]scale=210:-2,tile=5x4:padding=8:margin=8[sheet_out]" \
   -map "[keyframes_out]" \
   -q:v 3 \
   "$OUTPUT_DIR/keyframes/frame-%03d.jpg" \
