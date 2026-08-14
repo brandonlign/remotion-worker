@@ -66,6 +66,18 @@ SOURCE_RUNTIME_FILE="$SOURCE_DIR/automation/current/audio-runtime.json"
 
 copy_voice_artifact voiceover.mp3 "$AUDIO_FILE"
 
+# Final long-form rendering must use the job-specific packaged thumbnail. Keep
+# its binary media private in the durable job folder and materialize it into the
+# checked-out source before long:prepare validates the PNG packaging contract.
+if [ "$RESTORE_MODE" = "render" ]; then
+  THUMBNAIL_FILE="$SOURCE_DIR/public/assets/current/long-thumbnail.png"
+  mkdir -p "$(dirname "$THUMBNAIL_FILE")"
+  copy_voice_artifact long-thumbnail-source.png "$THUMBNAIL_FILE"
+  if [ ! -s "$THUMBNAIL_FILE" ]; then
+    rclone_fail "The prepared private long-form thumbnail is incomplete."
+  fi
+fi
+
 if [ "$RESTORE_MODE" = "render-sequence" ]; then
   if [ ! -s "$AUDIO_FILE" ]; then
     rclone_fail "The prepared private voiceover is incomplete."
