@@ -35,12 +35,6 @@ jobs:
         id: request
         run: node scripts/validate-job.mjs jobs/request.json
 
-      - name: Cache private Drive audio locator
-        uses: actions/cache@v4
-        with:
-          path: ${{ runner.temp }}/telic-drive-audio/${{ steps.request.outputs.job_id }}
-          key: telic-drive-audio-v1-${{ steps.request.outputs.job_id }}
-
       - name: Cache forced-alignment runtime
         if: steps.request.outputs.mode == 'voice-prep'
         uses: actions/cache@v4
@@ -131,7 +125,6 @@ jobs:
         env:
           RCLONE_CONFIG_B64: ${{ secrets.RCLONE_CONFIG_B64 }}
           JOB_ID: ${{ steps.request.outputs.job_id }}
-          TELIC_AUDIO_LOCATOR_DIR: ${{ runner.temp }}/telic-drive-audio/${{ steps.request.outputs.job_id }}
         run: |
           set +e
           mkdir -p "$RUNNER_TEMP/render-result"
@@ -250,7 +243,6 @@ jobs:
         env:
           RCLONE_CONFIG_B64: ${{ secrets.RCLONE_CONFIG_B64 }}
           JOB_ID: ${{ steps.request.outputs.job_id }}
-          TELIC_AUDIO_LOCATOR_DIR: ${{ runner.temp }}/telic-drive-audio/${{ steps.request.outputs.job_id }}
         run: |
           if bash scripts/upload-drive.sh \
             "$RUNNER_TEMP/render-result" \
