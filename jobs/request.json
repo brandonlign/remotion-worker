@@ -1,5 +1,7 @@
 {
-  "jobId": "telic-initial-001",
-  "sourceSha": "4b9bac6c4cac3e334deb1e9bf3da04f21e32228b",
-  "revision": 1
+  "jobId": "telic-web-202608131318-0ed7a0",
+  "sourceSha": "a8880e247bb0152b9c03082855c2310d08027027",
+  "revision": 29,
+  "mode": "render-sequence",
+  "sequenceIndex": 8
 }
