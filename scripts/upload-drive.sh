@@ -41,10 +41,15 @@ then
   exit 65
 fi
 
-use_telic_renders_root
+# Telic-Renders is a stable path in the authenticated private Drive. Address it
+# directly instead of listing the Drive root to rediscover its provider ID on
+# every delivery. Keep the existing duplicate-job-folder guard scoped inside
+# Telic-Renders before writing anything.
+RENDER_ROOT_PATH="Telic-Renders"
+JOB_TARGET_PATH="$RENDER_ROOT_PATH/$JOB_ID"
 
 DUPLICATE_JOB_FOLDERS="$(
-  rclone lsjson gdrive: \
+  rclone lsjson "gdrive:$RENDER_ROOT_PATH" \
     --config "$RCLONE_CONFIG_FILE" \
     --dirs-only \
     --max-depth 1 \
@@ -68,7 +73,7 @@ printf 'Upload completed at %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
 
 rclone copy \
   "$RESULT_DIR" \
-  "gdrive:$JOB_ID" \
+  "gdrive:$JOB_TARGET_PATH" \
   --config "$RCLONE_CONFIG_FILE" \
   --transfers 4 \
   --checkers 8 \
