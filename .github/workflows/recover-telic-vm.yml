@@ -1,82 +1,14 @@
-name: One-shot durable Telic publishing recovery
+name: Disabled one-shot Telic VM recovery
 
 on:
-  push:
-    branches: [main]
-    paths:
-      - .github/workflows/recover-telic-vm.yml
   workflow_dispatch:
 
 permissions:
   contents: read
 
-concurrency:
-  group: one-shot-durable-telic-publishing-recovery
-  cancel-in-progress: false
-
 jobs:
-  recover:
+  disabled:
+    if: ${{ false }}
     runs-on: ubuntu-latest
-    timeout-minutes: 20
-    env:
-      TS_AUTHKEY: ${{ secrets.TS_AUTHKEY }}
-      SOURCE_REPOSITORY: ${{ secrets.SOURCE_REPOSITORY }}
-      TELIC_VM_TS_HOST: ${{ vars.TELIC_VM_TS_HOST }}
     steps:
-      - name: Require configured bridge credentials
-        shell: bash
-        run: |
-          test -n "$TS_AUTHKEY" || { echo "Public worker has no Tailscale auth configured."; exit 78; }
-          test -n "$SOURCE_REPOSITORY" || { echo "Public worker has no private source-repository locator configured."; exit 78; }
-
-      - name: Join Telic tailnet
-        uses: tailscale/github-action@v4
-        with:
-          authkey: ${{ secrets.TS_AUTHKEY }}
-
-      - name: Recover Drive-verified publishing job 237
-        shell: bash
-        run: |
-          set -euo pipefail
-          host="${TELIC_VM_TS_HOST:-telic-controller}"
-          source_repo_b64="$(printf '%s' "$SOURCE_REPOSITORY" | base64 -w0)"
-          remote_cmd='set -euo pipefail
-          state="$HOME/.local/state/telic-controller/state.json"
-          node="$HOME/.nvm/versions/node/v22.23.2/bin/node"
-          target="$HOME/telic/telic-vm-controller-v3/src/recover-now.mjs"
-          test -f "$state"
-          test -x "$node"
-          test -f "$target"
-          issue="$(jq -r ".activeJob.issueNumber // 0" "$state")"
-          phase="$(jq -r ".activeJob.phase // empty" "$state")"
-          drive="$(jq -r ".activeJob.driveVerified // false" "$state")"
-          if [[ "$issue" != "237" || "$phase" != "publishing" || "$drive" != "true" ]]; then
-            echo "Refusing recovery: expected active issue 237 at the Drive-verified publishing boundary."
-            exit 65
-          fi
-          repo="$(printf "%s" "'"$source_repo_b64"'" | base64 -d)"
-          tmp="$(mktemp --suffix=.mjs)"
-          log="$(mktemp --suffix=.log)"
-          cleanup(){ rm -f "$tmp" "$log"; }
-          trap cleanup EXIT
-          gh api "repos/${repo}/contents/tools/telic-controller-v3/overrides/src/recover-now.mjs?ref=main" --jq .content \
-            | tr -d "\n" | base64 -d > "$tmp"
-          "$node" --check "$tmp"
-          grep -q "__TELIC_RECOVER_NOW_DURABLE_DISPATCHER_V1__" "$tmp"
-          cp "$target" "$target.pre-durable-$(date +%s)"
-          install -m 0644 "$tmp" "$target"
-          set +e
-          "$node" "$target" >"$log" 2>&1
-          code=$?
-          set -e
-          if [[ "$code" -ne 0 ]]; then
-            echo "Durable recovery failed with exit ${code}."
-            grep -E "publishAt|durable|YouTube|Drive|ERROR|failed|missing|invalid" "$log" \
-              | tail -n 20 \
-              | sed -E "s#https?://[^[:space:]]+#<redacted-url>#g" || true
-            exit "$code"
-          fi
-          grep -q "TELIC_DURABLE_PUBLISHING_RESCUED" "$log"
-          echo "Durable publishing recovery completed."
-          jq "{issueNumber:.activeJob.issueNumber,phase:.activeJob.phase,status:.activeJob.status,publishAt:.activeJob.publishAt,youtubeUploaded:(.activeJob.youtubeUploaded // false),youtubeScheduled:(.activeJob.youtubeScheduled // false),youtubeVerified:(.activeJob.youtubeVerified // false)}" "$state"'
-          tailscale ssh "ubuntu@${host}" "$remote_cmd"
+      - run: echo "Disabled"
