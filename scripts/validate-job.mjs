@@ -19,6 +19,11 @@ for (const key of Object.keys(request)) {
 if (typeof request.jobId !== "string" || !/^[a-z0-9][a-z0-9-]{5,63}$/.test(request.jobId)) {
   throw new Error("jobId must be 6-64 lowercase letters, numbers, or hyphens.");
 }
+const channelId = request.jobId.split("-", 1)[0];
+const supportedChannels = new Set(["telic", "coffee"]);
+if (!supportedChannels.has(channelId)) {
+  throw new Error(`Unsupported channel prefix in jobId: ${channelId}`);
+}
 
 if (typeof request.sourceSha !== "string" || !/^[0-9a-f]{40}$/.test(request.sourceSha)) {
   throw new Error("sourceSha must be a complete lowercase 40-character commit SHA.");
@@ -45,8 +50,7 @@ if (mode === "render-sequence") {
 
 // Public worker idempotency contains only values already present in the public
 // request. No private source, asset, render, Drive locator, or credential enters
-// this key. A successful full render owns this exact identity permanently from
-// the controller's perspective; retries of the same identity are no-ops.
+// this key. Channel ownership is encoded in the durable job ID prefix.
 const requestKey = [
   request.jobId,
   request.sourceSha,
@@ -59,8 +63,8 @@ const githubOutput = process.env.GITHUB_OUTPUT;
 if (githubOutput) {
   fs.appendFileSync(
     githubOutput,
-    `job_id=${request.jobId}\nsource_sha=${request.sourceSha}\nrevision=${request.revision}\nmode=${mode}\nsequence_index=${sequenceIndex}\nrequest_key=${requestKey}\n`,
+    `job_id=${request.jobId}\nchannel_id=${channelId}\nsource_sha=${request.sourceSha}\nrevision=${request.revision}\nmode=${mode}\nsequence_index=${sequenceIndex}\nrequest_key=${requestKey}\n`,
   );
 }
 
-console.log(`Validated ${path.basename(file)} in ${mode} mode.`);
+console.log(`Validated ${path.basename(file)} for ${channelId} in ${mode} mode.`);
