@@ -46,4 +46,14 @@ assert.doesNotMatch(sequenceRender, /bash -o pipefail -c "\$CHECK_COMMAND"/);
 assert.match(fullRender, /bash -o pipefail -c "\$CHECK_COMMAND"/);
 assert.doesNotMatch(fullRender, /PREVIEW_CRF|PREVIEW_SCALE|PREVIEW_CHECK_COMMAND/);
 
-console.log("Dynamic long-form sequence preview range, quality, and focused-check tests passed.");
+// The duplicate audio hash may be skipped only in the exact render workflow,
+// where the sequence step is already gated on successful audio restoration.
+assert.match(sequenceRender, /\$PREPARE_COMMAND" = "npm run long:prepare-window"/);
+assert.match(sequenceRender, /\$\{GITHUB_ACTIONS:-\}" = "true"/);
+assert.match(sequenceRender, /\$\{GITHUB_WORKFLOW:-\}" = "Render private Remotion source"/);
+assert.match(sequenceRender, /node scripts\/autopilot\/prepare-long-window\.mjs/);
+// Direct/manual/legacy invocation must retain the original prepare command,
+// which includes the long-form voiceover integrity hash gate.
+assert.match(sequenceRender, /bash -o pipefail -c "\$PREPARE_COMMAND"/);
+
+console.log("Dynamic long-form sequence preview range, quality, focused-check, and audio-fast-path tests passed.");
