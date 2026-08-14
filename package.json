@@ -4,6 +4,6 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "check": "bash -n scripts/*.sh scripts/lib/*.sh && for file in scripts/*.mjs; do node --check \"$file\"; done && node scripts/test-controller-handoff.mjs && node scripts/test-quality-policy.mjs && node scripts/test-review-moments.mjs && node scripts/test-sequence-preview.mjs && node scripts/test-thumbnail-contract.mjs && node scripts/test-verify-restored-audio.mjs && node scripts/test-private-music-request.mjs && node scripts/test-private-render-contract.mjs && node scripts/validate-job.mjs jobs/render-request.example.json && node scripts/validate-source-config.mjs examples/remotion-worker.json /tmp/remotion-worker-config.json"
+    "check": "bash -n scripts/*.sh scripts/lib/*.sh && for file in scripts/*.mjs; do node --check \"$file\"; done && node scripts/test-controller-handoff.mjs && node scripts/test-quality-policy.mjs && node scripts/test-review-moments.mjs && node scripts/test-sequence-preview.mjs && node scripts/test-review-assets-optimization.mjs && node scripts/test-thumbnail-contract.mjs && node scripts/test-verify-restored-audio.mjs && node scripts/test-private-music-request.mjs && node scripts/test-private-render-contract.mjs && node scripts/validate-job.mjs jobs/render-request.example.json && node scripts/validate-source-config.mjs examples/remotion-worker.json /tmp/remotion-worker-config.json"
   }
 }
