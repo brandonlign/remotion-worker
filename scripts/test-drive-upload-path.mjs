@@ -7,7 +7,7 @@ const restore = fs.readFileSync(new URL("./download-drive-audio.sh", import.meta
 const routing = fs.readFileSync(new URL("./lib/channel-storage.sh", import.meta.url), "utf8");
 const validator = fs.readFileSync(new URL("./validate-job.mjs", import.meta.url), "utf8");
 
-assert.match(routing, /telic\)[\s\S]*'Telic-Renders'/);
+assert.match(routing, /telic\)[\s\S]*'YouTube\/Telic\/Telic-Renders'/);
 assert.match(routing, /coffee\)[\s\S]*'YouTube\/Coffee\/Renders'/);
 assert.match(routing, /Unsupported render channel/);
 assert.match(upload, /RENDER_ROOT_PATH="\$\(render_root_for_job_id "\$JOB_ID"\)"/);
