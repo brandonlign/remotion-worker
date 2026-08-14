@@ -69,7 +69,10 @@ RENDER_END_FRAME="$(node -e 'const x=JSON.parse(process.argv[1]); process.stdout
 END_FRAME="$(node -e 'const x=JSON.parse(process.argv[1]); process.stdout.write(String(x.endFrame))' "$RANGE_JSON")"
 PADDED_INDEX="$(printf '%02d' "$SEQUENCE_INDEX")"
 OUTPUT_DIR="$OUTPUT_ROOT/sequence-$PADDED_INDEX"
-PREVIEW_VIDEO="$OUTPUT_DIR/sequence-preview.mp4"
+# The sequence render is already the intentionally low-quality review asset.
+# Render it directly to the canonical review filename instead of transcoding a
+# second MP4 after Remotion finishes.
+PREVIEW_VIDEO="$OUTPUT_DIR/review.mp4"
 mkdir -p "$OUTPUT_DIR"
 
 "$REMOTION_BIN" render \
@@ -82,9 +85,10 @@ mkdir -p "$OUTPUT_DIR"
   --frames="${START_FRAME}-${RENDER_END_FRAME}" \
   --log=error
 
-# Remotion v4 ships its own pinned FFmpeg/FFprobe binaries. Reuse those for
-# preview-only review derivatives so render-sequence jobs do not need a system
-# FFmpeg installation. Full renders keep their existing compatibility path.
+# Remotion v4 ships its own pinned FFmpeg/FFprobe binaries. Reuse those for the
+# remaining metadata/still review derivatives. The review MP4 itself is already
+# complete, so skip the redundant second video transcode.
+TELIC_REUSE_SOURCE_AS_REVIEW=1 \
 TELIC_REMOTION_BIN="$REMOTION_BIN" \
   bash "$WORKER_ROOT/scripts/create-review-assets.sh" "$PREVIEW_VIDEO" "$OUTPUT_DIR"
 

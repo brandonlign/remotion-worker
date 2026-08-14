@@ -4,15 +4,20 @@ import fs from "node:fs";
 
 const script = fs.readFileSync(new URL("./create-review-assets.sh", import.meta.url), "utf8");
 
-const ffmpegInvocations = script.match(/^run_media_tool ffmpeg \\/gm) ?? [];
-assert.equal(ffmpegInvocations.length, 2, "review packaging should use exactly two ffmpeg invocations: review MP4 + shared stills decode");
+const ffmpegInvocations = script.match(/^  run_media_tool ffmpeg \\/gm) ?? [];
+assert.equal(ffmpegInvocations.length, 1, "the optional review-MP4 transcode should remain isolated behind the reuse guard");
+assert.equal((script.match(/^run_media_tool ffmpeg \\/gm) ?? []).length, 1, "still review assets should share exactly one ffmpeg decode");
 assert.equal((script.match(/^run_media_tool ffprobe \\/gm) ?? []).length, 1, "review packaging should use one ffprobe invocation");
 assert.doesNotMatch(script, /^ffmpeg \\/m, "preview review packaging must not require system ffmpeg directly");
 assert.doesNotMatch(script, /^ffprobe \\/m, "preview review packaging must not require system ffprobe directly");
 assert.match(script, /TELIC_REMOTION_BIN/);
+assert.match(script, /TELIC_REUSE_SOURCE_AS_REVIEW/);
+assert.match(script, /if \[ "\$REUSE_SOURCE_AS_REVIEW" = "1" \]; then/);
+assert.match(script, /"\$VIDEO" != "\$OUTPUT_DIR\/review\.mp4"/);
 assert.match(script, /"\$REMOTION_BIN" "\$tool" "\$@"/);
 assert.match(script, /"\$tool" "\$@"/);
 
+// Full renders and Shorts retain the original review-video transcode settings.
 assert.match(script, /-vf "scale=540:-2"/);
 assert.match(script, /-preset veryfast/);
 assert.match(script, /-crf 28/);
@@ -28,6 +33,9 @@ assert.match(script, /-frames:v 1/);
 assert.match(script, /contact-sheet\.jpg/);
 
 const sequence = fs.readFileSync(new URL("./run-render-sequence.sh", import.meta.url), "utf8");
+assert.match(sequence, /PREVIEW_VIDEO="\$OUTPUT_DIR\/review\.mp4"/);
+assert.doesNotMatch(sequence, /sequence-preview\.mp4/);
+assert.match(sequence, /TELIC_REUSE_SOURCE_AS_REVIEW=1/);
 assert.match(sequence, /TELIC_REMOTION_BIN="\$REMOTION_BIN"/);
 assert.match(sequence, /create-review-assets\.sh/);
 
@@ -45,4 +53,4 @@ assert.match(workflow, /source scripts\/ensure-public-rclone\.sh/);
 assert.match(workflow, /RENDER_MODE" != "render-sequence"/);
 assert.doesNotMatch(workflow, /packages\+=\(rclone\)/);
 
-console.log("Review assets preserve outputs while render-sequence reuses pinned Remotion media tools and public rclone bootstrap.");
+console.log("Review assets preserve full-render outputs while render-sequence reuses its low-quality MP4 directly and keeps one shared stills decode.");
