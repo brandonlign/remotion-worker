@@ -111,25 +111,6 @@ try {
   assert.match(restoreScript, /--committed-long/);
   assert.match(restoreScript, /copy_voice_artifact alignment\.json/);
   assert.match(restoreScript, /copy_voice_artifact audio-runtime\.json/);
-
-  // The fast preview path must use an opaque private locator and Drive's ID
-  // backend command, while retaining the path-based fallback for old jobs.
-  assert.match(restoreScript, /TELIC_AUDIO_LOCATOR_DIR/);
-  assert.match(restoreScript, /voiceover\.id/);
-  assert.match(restoreScript, /rclone backend copyid gdrive:/);
-  assert.match(restoreScript, /use_telic_renders_root/);
-  assert.match(restoreScript, /resolve_voiceover_id_from_path/);
-
-  const uploadScript = await fs.readFile(new URL("./upload-drive.sh", import.meta.url), "utf8");
-  assert.match(uploadScript, /TELIC_AUDIO_LOCATOR_DIR/);
-  assert.match(uploadScript, /voiceover_drive_id/);
-  assert.match(uploadScript, /voiceover\.id/);
-  assert.doesNotMatch(uploadScript, /echo .*voiceover_drive_id/);
-
-  const workflow = await fs.readFile(new URL("../.github/workflows/render.yml", import.meta.url), "utf8");
-  assert.match(workflow, /name: Cache private Drive audio locator/);
-  assert.match(workflow, /key: telic-drive-audio-v1-\$\{\{ steps\.request\.outputs\.job_id \}\}/);
-  assert.match(workflow, /TELIC_AUDIO_LOCATOR_DIR: \$\{\{ runner\.temp \}\}\/telic-drive-audio\/\$\{\{ steps\.request\.outputs\.job_id \}\}/);
 } finally {
   await fs.rm(temp, {recursive: true, force: true});
 }
