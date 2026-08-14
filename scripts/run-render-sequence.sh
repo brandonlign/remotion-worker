@@ -25,6 +25,7 @@ COMPOSITION_ID="$(source_config_field compositionId)"
 INSTALL_COMMAND="$(source_config_field installCommand)"
 PREPARE_COMMAND="$(source_config_field prepareCommand)"
 CHECK_COMMAND="$(source_config_field checkCommand)"
+PREVIEW_CHECK_COMMAND="npx eslint src && npx tsc --noEmit"
 PREVIEW_CRF=28
 PREVIEW_SCALE="0.6666666667"
 REMOTION_BIN="$SOURCE_DIR/node_modules/.bin/remotion"
@@ -41,7 +42,10 @@ node "$WORKER_ROOT/scripts/validate-private-render-contract.mjs" \
 cd "$SOURCE_DIR"
 bash -o pipefail -c "$INSTALL_COMMAND"
 bash -o pipefail -c "$PREPARE_COMMAND"
-bash -o pipefail -c "$CHECK_COMMAND"
+# Sequence previews need video-code safety, not the entire controller/installer
+# regression suite. Keep ESLint over all src plus full TypeScript checking here;
+# the Remotion render below is the final compilation/runtime check for this window.
+bash -o pipefail -c "$PREVIEW_CHECK_COMMAND"
 
 if [ ! -x "$REMOTION_BIN" ]; then
   stage_fail "The Remotion CLI was not installed by the configured install command." 69

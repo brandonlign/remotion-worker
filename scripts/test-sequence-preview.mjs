@@ -40,6 +40,10 @@ assert.match(sequenceRender, /PREVIEW_CRF=28/);
 assert.match(sequenceRender, /PREVIEW_SCALE="0\.6666666667"/);
 assert.match(sequenceRender, /--crf="\$PREVIEW_CRF"/);
 assert.match(sequenceRender, /--scale="\$PREVIEW_SCALE"/);
-assert.doesNotMatch(fullRender, /PREVIEW_CRF|PREVIEW_SCALE/);
+assert.match(sequenceRender, /PREVIEW_CHECK_COMMAND="npx eslint src && npx tsc --noEmit"/);
+assert.match(sequenceRender, /bash -o pipefail -c "\$PREVIEW_CHECK_COMMAND"/);
+assert.doesNotMatch(sequenceRender, /bash -o pipefail -c "\$CHECK_COMMAND"/);
+assert.match(fullRender, /bash -o pipefail -c "\$CHECK_COMMAND"/);
+assert.doesNotMatch(fullRender, /PREVIEW_CRF|PREVIEW_SCALE|PREVIEW_CHECK_COMMAND/);
 
-console.log("Dynamic long-form sequence preview range and quality tests passed.");
+console.log("Dynamic long-form sequence preview range, quality, and focused-check tests passed.");
