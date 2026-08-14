@@ -15,9 +15,8 @@ channel_render_root() {
   local channel_id="$1"
   case "$channel_id" in
     telic)
-      # Telic remains at its existing production path until the controller is
-      # switched to the stable Drive folder ID and the folder is moved.
-      printf '%s\n' 'Telic-Renders'
+      # Telic renders live under the channel-owned YouTube/Telic Drive tree.
+      printf '%s\n' 'YouTube/Telic/Telic-Renders'
       ;;
     coffee)
       # Coffee is provisioned but controller-side production is disabled until
