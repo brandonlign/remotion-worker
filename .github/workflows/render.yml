@@ -62,10 +62,32 @@ jobs:
           restore-keys: |
             telic-remotion-npm-${{ runner.os }}-${{ runner.arch }}-
 
-      - name: Install system tools
+      - name: Ensure required system tools
+        shell: bash
+        env:
+          RENDER_MODE: ${{ steps.request.outputs.mode }}
         run: |
+          set -Eeuo pipefail
+          packages=()
+
+          if ! command -v ffmpeg >/dev/null 2>&1; then
+            packages+=(ffmpeg)
+          fi
+          if ! command -v rclone >/dev/null 2>&1; then
+            packages+=(rclone)
+          fi
+          if [[ "$RENDER_MODE" == "voice-prep" ]] && ! python3 -c 'import venv' >/dev/null 2>&1; then
+            packages+=(python3-venv)
+          fi
+
+          if (( ${#packages[@]} == 0 )); then
+            echo "All required system tools are already available."
+            exit 0
+          fi
+
+          echo "Installing missing system tools: ${packages[*]}"
           sudo apt-get update -qq
-          sudo apt-get install -y -qq ffmpeg rclone python3-venv
+          sudo apt-get install -y -qq "${packages[@]}"
 
       - name: Prepare locked voiceover and timing
         id: voice
