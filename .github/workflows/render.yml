@@ -63,30 +63,42 @@ jobs:
           restore-keys: |
             telic-remotion-npm-${{ runner.os }}-${{ runner.arch }}-
 
+      - name: Cache public rclone binary
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/telic-tools/rclone-v1.75.0
+          key: telic-rclone-v1.75.0-${{ runner.os }}-${{ runner.arch }}
+
       - name: Ensure required system tools
         shell: bash
         env:
           RENDER_MODE: ${{ steps.request.outputs.mode }}
         run: |
           set -Eeuo pipefail
+
+          # rclone is public transport tooling, so keep a version-pinned,
+          # checksum-verified public binary cache. The bootstrap has an apt
+          # fallback and never caches credentials, locators, or Telic content.
+          source scripts/ensure-public-rclone.sh
+
           packages=()
 
-          if ! command -v ffmpeg >/dev/null 2>&1; then
+          # Window previews reuse the FFmpeg/FFprobe bundled with the exact
+          # private-source Remotion dependency after npm ci. Keep system FFmpeg
+          # for voice-prep and full-render compatibility only.
+          if [[ "$RENDER_MODE" != "render-sequence" ]] && ! command -v ffmpeg >/dev/null 2>&1; then
             packages+=(ffmpeg)
-          fi
-          if ! command -v rclone >/dev/null 2>&1; then
-            packages+=(rclone)
           fi
           if [[ "$RENDER_MODE" == "voice-prep" ]] && ! python3 -c 'import venv' >/dev/null 2>&1; then
             packages+=(python3-venv)
           fi
 
           if (( ${#packages[@]} == 0 )); then
-            echo "All required system tools are already available."
+            echo "No additional system packages are required for this stage."
             exit 0
           fi
 
-          echo "Installing missing system tools: ${packages[*]}"
+          echo "Installing compatibility system packages: ${packages[*]}"
           sudo apt-get update -qq
           sudo apt-get install -y -qq "${packages[@]}"
 
