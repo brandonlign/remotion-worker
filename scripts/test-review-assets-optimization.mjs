@@ -23,12 +23,15 @@ assert.match(script, /-preset veryfast/);
 assert.match(script, /-crf 28/);
 assert.match(script, /-b:a 96k/);
 
-// 0.5 fps is exactly one still every two seconds, but avoids the rational-form
-// parser incompatibility observed through Remotion's bundled FFmpeg wrapper.
-assert.match(script, /fps=fps=0\.5,split=2\[keyframes\]\[sheet\]/);
+// The bundled FFmpeg path must use explicit named options throughout the still
+// filter chain. This preserves the exact cadence/layout while avoiding shorthand
+// parser failures observed in production.
+assert.match(script, /fps=fps=0\.5,split=outputs=2\[keyframes\]\[sheet\]/);
 assert.doesNotMatch(script, /fps=1\/2/);
-assert.match(script, /\[keyframes\]scale=360:-2\[keyframes_out\]/);
-assert.match(script, /\[sheet\]scale=210:-2,tile=5x4:padding=8:margin=8\[sheet_out\]/);
+assert.doesNotMatch(script, /split=2\[/);
+assert.match(script, /\[keyframes\]scale=w=360:h=-2\[keyframes_out\]/);
+assert.match(script, /\[sheet\]scale=w=210:h=-2,tile=layout=5x4:padding=8:margin=8\[sheet_out\]/);
+assert.doesNotMatch(script, /tile=5x4/);
 assert.match(script, /-map "\[keyframes_out\]"/);
 assert.match(script, /keyframes\/frame-%03d\.jpg/);
 assert.match(script, /-map "\[sheet_out\]"/);
@@ -56,4 +59,4 @@ assert.match(workflow, /source scripts\/ensure-public-rclone\.sh/);
 assert.match(workflow, /RENDER_MODE" != "render-sequence"/);
 assert.doesNotMatch(workflow, /packages\+=\(rclone\)/);
 
-console.log("Review assets preserve full-render outputs while render-sequence reuses its low-quality MP4 directly and keeps one compatible shared stills decode.");
+console.log("Review assets preserve full-render outputs while render-sequence reuses its low-quality MP4 directly and uses explicit bundled-FFmpeg filter options.");
