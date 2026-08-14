@@ -16,42 +16,44 @@ activate_cached_rclone() {
   fi
 }
 
-download_pinned_rclone() {
-  command -v curl >/dev/null 2>&1 || return 1
-  command -v unzip >/dev/null 2>&1 || return 1
+download_pinned_rclone() (
+  set -Eeuo pipefail
+  command -v curl >/dev/null 2>&1 || exit 1
+  command -v unzip >/dev/null 2>&1 || exit 1
 
-  local arch archive checksum temp_dir extracted
+  local_arch=""
+  checksum=""
   case "$(uname -m)" in
     x86_64|amd64)
-      arch="amd64"
+      local_arch="amd64"
       checksum="aa2804e08f48250e71009c727124b6341cd0288465804a9a09d14663cabafbaa"
       ;;
     aarch64|arm64)
-      arch="arm64"
+      local_arch="arm64"
       checksum="d0ad88ba4c8e285b7c9efa591e0ab643280a91741e13c27f3a9c0957ccfa5203"
       ;;
     *)
-      return 1
+      exit 1
       ;;
   esac
 
-  archive="rclone-v${RCLONE_VERSION}-linux-${arch}.zip"
+  archive="rclone-v${RCLONE_VERSION}-linux-${local_arch}.zip"
   temp_dir="$(mktemp -d)"
-  trap 'rm -rf "${temp_dir:-}"' RETURN
+  trap 'rm -rf "$temp_dir"' EXIT
 
   curl --fail --silent --show-error --location \
     "https://github.com/rclone/rclone/releases/download/v${RCLONE_VERSION}/${archive}" \
-    --output "$temp_dir/$archive" || return 1
+    --output "$temp_dir/$archive"
 
-  printf '%s  %s\n' "$checksum" "$temp_dir/$archive" | sha256sum --check --status || return 1
-  unzip -q "$temp_dir/$archive" -d "$temp_dir" || return 1
-  extracted="$temp_dir/rclone-v${RCLONE_VERSION}-linux-${arch}/rclone"
-  [ -x "$extracted" ] || return 1
+  printf '%s  %s\n' "$checksum" "$temp_dir/$archive" | sha256sum --check --status
+  unzip -q "$temp_dir/$archive" -d "$temp_dir"
+  extracted="$temp_dir/rclone-v${RCLONE_VERSION}-linux-${local_arch}/rclone"
+  [ -x "$extracted" ]
 
   mkdir -p "$RCLONE_ROOT"
   install -m 0755 "$extracted" "$RCLONE_BIN"
   valid_cached_rclone
-}
+)
 
 if valid_cached_rclone; then
   activate_cached_rclone
