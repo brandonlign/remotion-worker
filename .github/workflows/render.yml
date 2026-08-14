@@ -31,7 +31,12 @@ jobs:
         with:
           node-version: 22
 
+      - name: Validate render request
+        id: request
+        run: node scripts/validate-job.mjs jobs/request.json
+
       - name: Cache forced-alignment runtime
+        if: steps.request.outputs.mode == 'voice-prep'
         uses: actions/cache@v4
         with:
           path: |
@@ -39,10 +44,6 @@ jobs:
             ~/.cache/torch
             ~/.cache/huggingface
           key: telic-whisperx-3.8.6-en-${{ runner.os }}-${{ runner.arch }}-py3
-
-      - name: Validate render request
-        id: request
-        run: node scripts/validate-job.mjs jobs/request.json
 
       - name: Check out private source
         uses: actions/checkout@v4
