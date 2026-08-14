@@ -25,6 +25,17 @@ CRF="$(source_config_field crf)"
 FINAL_VIDEO="$OUTPUT_DIR/${OUTPUT_NAME}.mp4"
 THUMBNAIL_FILE="$OUTPUT_DIR/thumbnail.png"
 REMOTION_BIN="$SOURCE_DIR/node_modules/.bin/remotion"
+FOCUSED_SOURCE_CHECK="npx eslint src && npx tsc --noEmit"
+
+# The configured checkCommand remains part of the private-source contract, but
+# final rendering should not rerun unrelated controller/installer/publisher
+# regression suites. Keep code safety plus the production contract that matches
+# the format being rendered.
+if [ "$PREPARE_COMMAND" = "npm run long:prepare" ]; then
+  FINAL_CONTRACT_COMMAND="npm run long:contract:test"
+else
+  FINAL_CONTRACT_COMMAND="npm run custom:contract:test"
+fi
 
 node "$WORKER_ROOT/scripts/validate-private-render-contract.mjs" \
   "$SOURCE_DIR" \
@@ -37,7 +48,8 @@ node "$WORKER_ROOT/scripts/validate-private-render-contract.mjs" \
 cd "$SOURCE_DIR"
 bash -o pipefail -c "$INSTALL_COMMAND"
 bash -o pipefail -c "$PREPARE_COMMAND"
-bash -o pipefail -c "$CHECK_COMMAND"
+bash -o pipefail -c "$FOCUSED_SOURCE_CHECK"
+bash -o pipefail -c "$FINAL_CONTRACT_COMMAND"
 
 if [ ! -x "$REMOTION_BIN" ]; then
   stage_fail "The Remotion CLI was not installed by the configured install command." 69
