@@ -25,10 +25,26 @@ let result = run();
 assert.equal(result.status, 0, result.stderr);
 assert.equal(result.stdout.trim().split("\t").length, 4);
 
+const coffeeMusic = {
+  ...music,
+  library: "channel-library-v1",
+  fileName: "Coffee Track 01.mp3",
+  assetPath: "public/assets/current/coffee-music-01.mp3",
+};
+await fs.writeFile(input, JSON.stringify({qualityVersion: 2, music: coffeeMusic}));
+result = run();
+assert.equal(result.status, 0, result.stderr);
+assert.equal(result.stdout.trim().split("\t").length, 4);
+
 await fs.writeFile(input, JSON.stringify({qualityVersion: 1, music}));
 result = run();
 assert.equal(result.status, 0, result.stderr);
 assert.equal(result.stdout, "");
+
+await fs.writeFile(input, JSON.stringify({qualityVersion: 2, music: {...music, library: "unapproved-library"}}));
+result = run();
+assert.notEqual(result.status, 0);
+assert.match(result.stderr, /approved channel-owned library/);
 
 await fs.writeFile(input, JSON.stringify({qualityVersion: 2, music: {...music, assetPath: "../escape.mp3"}}));
 result = run();
@@ -36,4 +52,4 @@ assert.notEqual(result.status, 0);
 assert.match(result.stderr, /unsafe assetPath/);
 
 await fs.rm(root, {recursive: true, force: true});
-console.log("Private music restore request tests passed.");
+console.log("Private channel music restore request tests passed.");
