@@ -25,7 +25,8 @@ COMPOSITION_ID="$(source_config_field compositionId)"
 INSTALL_COMMAND="$(source_config_field installCommand)"
 PREPARE_COMMAND="$(source_config_field prepareCommand)"
 CHECK_COMMAND="$(source_config_field checkCommand)"
-CRF="$(source_config_field crf)"
+PREVIEW_CRF=28
+PREVIEW_SCALE="0.6666666667"
 REMOTION_BIN="$SOURCE_DIR/node_modules/.bin/remotion"
 VISUAL_PLAN="$SOURCE_DIR/automation/current/visual-plan.json"
 
@@ -63,7 +64,8 @@ mkdir -p "$OUTPUT_DIR"
   "$COMPOSITION_ID" \
   "$PREVIEW_VIDEO" \
   --codec=h264 \
-  --crf="$CRF" \
+  --crf="$PREVIEW_CRF" \
+  --scale="$PREVIEW_SCALE" \
   --frames="${START_FRAME}-${RENDER_END_FRAME}" \
   --log=error
 
