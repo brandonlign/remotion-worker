@@ -45,32 +45,33 @@ run_media_tool ffprobe \
   > "$OUTPUT_DIR/media-metadata.json"
 
 if [ "$REUSE_SOURCE_AS_REVIEW" = "1" ]; then
-  # render-sequence already produces a deliberately low-quality review video.
-  # Require it to be the canonical review.mp4 so callers cannot accidentally
-  # skip packaging while leaving no review video behind.
+  # render-sequence already produces the canonical low-quality review video.
+  # Remotion's bundled FFmpeg build does not guarantee the sampling filters
+  # used for optional still derivatives, so keep the validated MP4 + metadata
+  # as the sequence review package and let status/checksums complete upstream.
   if [ "$VIDEO" != "$OUTPUT_DIR/review.mp4" ]; then
     echo "TELIC_REUSE_SOURCE_AS_REVIEW requires the source video to be output-dir/review.mp4." >&2
     exit 64
   fi
-else
-  run_media_tool ffmpeg \
-    -hide_banner \
-    -loglevel error \
-    -y \
-    -i "$VIDEO" \
-    -vf "scale=540:-2" \
-    -c:v libx264 \
-    -preset veryfast \
-    -crf 28 \
-    -c:a aac \
-    -b:a 96k \
-    -movflags +faststart \
-    "$OUTPUT_DIR/review.mp4"
+  exit 0
 fi
 
-# Decode the video only once for both still-image review products. Use explicit
-# named filter options throughout this bundled-FFmpeg path; the runner's system
-# FFmpeg accepted shorthand forms, but Remotion's bundled build rejected them.
+run_media_tool ffmpeg \
+  -hide_banner \
+  -loglevel error \
+  -y \
+  -i "$VIDEO" \
+  -vf "scale=540:-2" \
+  -c:v libx264 \
+  -preset veryfast \
+  -crf 28 \
+  -c:a aac \
+  -b:a 96k \
+  -movflags +faststart \
+  "$OUTPUT_DIR/review.mp4"
+
+# Full-render review packaging uses system FFmpeg, where these still derivatives
+# are supported and useful for quick inspection.
 run_media_tool ffmpeg \
   -hide_banner \
   -loglevel error \
