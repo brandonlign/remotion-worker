@@ -7,6 +7,8 @@ const filePath = process.argv[2];
 if (!filePath || !fs.existsSync(filePath)) process.exit(0);
 
 const audioDesign = JSON.parse(fs.readFileSync(filePath, "utf8"));
+if (audioDesign.qualityVersion !== 2) process.exit(0);
+
 const candidates = Array.isArray(audioDesign.musicBeds)
   ? audioDesign.musicBeds
   : audioDesign.music
