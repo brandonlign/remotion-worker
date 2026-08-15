@@ -5,7 +5,7 @@ import fs from "node:fs";
 
 const script = fs.readFileSync(new URL("./run-render.sh", import.meta.url), "utf8");
 
-assert.match(script, /FOCUSED_SOURCE_CHECK="npx eslint src && npx tsc --noEmit"/);
+assert.match(script, /FOCUSED_SOURCE_CHECK="\$CHECK_COMMAND"/);
 assert.match(script, /if \[ "\$PREPARE_COMMAND" = "npm run long:prepare" \]; then/);
 assert.match(script, /FINAL_CONTRACT_COMMAND="npm run long:contract:test"/);
 assert.match(script, /FINAL_CONTRACT_COMMAND="npm run custom:contract:test"/);
@@ -14,7 +14,7 @@ assert.match(script, /bash -o pipefail -c "\$FINAL_CONTRACT_COMMAND"/);
 assert.doesNotMatch(
   script,
   /bash -o pipefail -c "\$CHECK_COMMAND"/,
-  "final renders must not execute the generic infrastructure-heavy checkCommand",
+  "final renders execute the validated private check via FOCUSED_SOURCE_CHECK rather than bypassing the named focused-check variable",
 );
 
 // Preserve the actual render and output-quality path.
@@ -23,4 +23,4 @@ assert.match(script, /--codec=h264/);
 assert.match(script, /--crf="\$CRF"/);
 assert.match(script, /create-review-assets\.sh/);
 
-console.log("Final renders use focused format-aware checks while preserving render quality settings.");
+console.log("Final renders use isolated private checks plus format-aware contracts while preserving render quality settings.");
