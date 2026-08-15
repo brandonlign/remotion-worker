@@ -5,7 +5,7 @@ import fs from "node:fs";
 
 const script = fs.readFileSync(new URL("./run-render.sh", import.meta.url), "utf8");
 
-assert.match(script, /FOCUSED_SOURCE_CHECK="npx eslint src\/compositions\/CurrentCustomShort && npx tsc --noEmit .*CurrentCustomShort\/Composition\.tsx .*CurrentCustomShort\/qrEvidence\.ts .*CurrentCustomShort\/generated\.ts"/);
+assert.match(script, /FOCUSED_SOURCE_CHECK="npx eslint src && npx tsc --noEmit"/);
 assert.match(script, /if \[ "\$PREPARE_COMMAND" = "npm run long:prepare" \]; then/);
 assert.match(script, /FINAL_CONTRACT_COMMAND="npm run long:contract:test"/);
 assert.match(script, /FINAL_CONTRACT_COMMAND="npm run custom:contract:test"/);
