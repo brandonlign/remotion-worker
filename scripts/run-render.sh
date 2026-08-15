@@ -25,7 +25,7 @@ CRF="$(source_config_field crf)"
 FINAL_VIDEO="$OUTPUT_DIR/${OUTPUT_NAME}.mp4"
 THUMBNAIL_FILE="$OUTPUT_DIR/thumbnail.png"
 REMOTION_BIN="$SOURCE_DIR/node_modules/.bin/remotion"
-FOCUSED_SOURCE_CHECK="npx eslint src/compositions/CurrentCustomShort && npx tsc --noEmit"
+FOCUSED_SOURCE_CHECK="npx eslint src/compositions/CurrentCustomShort && npx tsc --noEmit --target ES2018 --module commonjs --jsx react-jsx --strict --lib es2015,dom --esModuleInterop --skipLibCheck --noUnusedLocals src/compositions/CurrentCustomShort/Composition.tsx src/compositions/CurrentCustomShort/qrEvidence.ts src/compositions/CurrentCustomShort/generated.ts"
 
 # The configured checkCommand remains part of the private-source contract, but
 # final rendering should not rerun unrelated controller/installer/publisher
