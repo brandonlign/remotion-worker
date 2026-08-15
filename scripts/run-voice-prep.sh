@@ -19,6 +19,15 @@ fi
 
 prepare_private_source_stage "Voice preparation"
 
+# vNext channel identity is derived from the immutable job prefix for this
+# isolated worker request. This prevents non-web Coffee jobs from falling back
+# to the legacy Telic source profile during private voice preparation.
+VOICE_CHANNEL_ID="${JOB_ID%%-*}"
+if [[ ! "$VOICE_CHANNEL_ID" =~ ^[a-z0-9][a-z0-9-]{0,62}$ ]]; then
+  stage_fail "Invalid channel id derived from job id."
+fi
+export TELIC_VNEXT_CHANNEL_ID="$VOICE_CHANNEL_ID"
+
 INSTALL_COMMAND="$(source_config_field installCommand)"
 
 WHISPERX_VERSION="3.8.6"
