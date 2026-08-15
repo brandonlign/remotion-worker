@@ -6,7 +6,7 @@ RCLONE_ROOT="${TELIC_RCLONE_ROOT:-$HOME/.cache/telic-tools/rclone-v$RCLONE_VERSI
 RCLONE_BIN="$RCLONE_ROOT/rclone"
 
 valid_cached_rclone() {
-  [ -x "$RCLONE_BIN" ] && [ "$("$RCLONE_BIN" version 2>/dev/null | head -n 1)" = "rclone v$RCLONE_VERSION" ]
+  [ -x "$RCLONE_BIN" ] && [ "$(timeout 5s "$RCLONE_BIN" version 2>/dev/null | head -n 1)" = "rclone v$RCLONE_VERSION" ]
 }
 
 activate_cached_rclone() {
@@ -42,6 +42,7 @@ download_pinned_rclone() (
   trap 'rm -rf "$temp_dir"' EXIT
 
   curl --fail --silent --show-error --location \
+    --connect-timeout 10 --max-time 30 \
     "https://github.com/rclone/rclone/releases/download/v${RCLONE_VERSION}/${archive}" \
     --output "$temp_dir/$archive"
 
