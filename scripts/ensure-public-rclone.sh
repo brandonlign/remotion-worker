@@ -43,7 +43,7 @@ download_pinned_rclone() (
 
   curl --fail --silent --show-error --location \
     --connect-timeout 10 --max-time 30 \
-    "https://github.com/rclone/rclone/releases/download/v${RCLONE_VERSION}/${archive}" \
+    "https://downloads.rclone.org/v${RCLONE_VERSION}/${archive}" \
     --output "$temp_dir/$archive"
 
   printf '%s  %s\n' "$checksum" "$temp_dir/$archive" | sha256sum --check --status
