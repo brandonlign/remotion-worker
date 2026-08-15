@@ -43,7 +43,7 @@ assert.match(sequenceRender, /--scale="\$PREVIEW_SCALE"/);
 assert.match(sequenceRender, /PREVIEW_CHECK_COMMAND="npx eslint src && npx tsc --noEmit"/);
 assert.match(sequenceRender, /bash -o pipefail -c "\$PREVIEW_CHECK_COMMAND"/);
 assert.doesNotMatch(sequenceRender, /bash -o pipefail -c "\$CHECK_COMMAND"/);
-assert.match(fullRender, /FOCUSED_SOURCE_CHECK="npx eslint src && npx tsc --noEmit"/);
+assert.match(fullRender, /FOCUSED_SOURCE_CHECK="npx eslint src\/compositions\/CurrentCustomShort && npx tsc --noEmit .*CurrentCustomShort\/Composition\.tsx .*CurrentCustomShort\/qrEvidence\.ts .*CurrentCustomShort\/generated\.ts"/);
 assert.match(fullRender, /FINAL_CONTRACT_COMMAND="npm run long:contract:test"/);
 assert.match(fullRender, /FINAL_CONTRACT_COMMAND="npm run custom:contract:test"/);
 assert.doesNotMatch(fullRender, /bash -o pipefail -c "\$CHECK_COMMAND"/);
