@@ -25,12 +25,12 @@ CRF="$(source_config_field crf)"
 FINAL_VIDEO="$OUTPUT_DIR/${OUTPUT_NAME}.mp4"
 THUMBNAIL_FILE="$OUTPUT_DIR/thumbnail.png"
 REMOTION_BIN="$SOURCE_DIR/node_modules/.bin/remotion"
-FOCUSED_SOURCE_CHECK="npx eslint src && npx tsc --noEmit"
+FOCUSED_SOURCE_CHECK="$CHECK_COMMAND"
 
-# The configured checkCommand remains part of the private-source contract, but
-# final rendering should not rerun unrelated controller/installer/publisher
-# regression suites. Keep code safety plus the production contract that matches
-# the format being rendered.
+# The private source contract already defines the focused code check for this
+# job. Run it exactly as authored so unrelated compositions cannot block a
+# valid isolated render, then retain the format-specific production contract
+# as an additional worker-side safety gate.
 if [ "$PREPARE_COMMAND" = "npm run long:prepare" ]; then
   FINAL_CONTRACT_COMMAND="npm run long:contract:test"
 else
