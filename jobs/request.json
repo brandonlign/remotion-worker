@@ -1,6 +1,6 @@
 {
-  "jobId": "telic-short-20260815010437-concurrent",
-  "sourceSha": "55aea51a2090b89442f6129c84c204f5895d7be1",
-  "revision": 4,
-  "mode": "render"
+  "jobId": "coffee-short-20260815010437-concurrent",
+  "sourceSha": "6220e4f560b6a01d503f457ed533cd4f506a635c",
+  "revision": 1,
+  "mode": "voice-prep"
 }
