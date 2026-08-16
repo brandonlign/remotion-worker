@@ -11,10 +11,28 @@ permissions:
 jobs:
   validate:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 10
     steps:
       - name: Check out worker
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Enforce request-only render PR scope
+        if: startsWith(github.head_ref, 'render/')
+        shell: bash
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -Eeuo pipefail
+          mapfile -t changed < <(git diff --name-only "$BASE_SHA" "$HEAD_SHA")
+          printf 'Render PR changed files:\n'
+          printf '  %s\n' "${changed[@]}"
+          if [ "${#changed[@]}" -ne 1 ] || [ "${changed[0]}" != "jobs/request.json" ]; then
+            echo "render/* PRs are request-only; reusable worker code must be committed and validated on main first." >&2
+            exit 1
+          fi
 
       - name: Set up Node
         uses: actions/setup-node@v4
