@@ -1,0 +1,5 @@
+gmn-python-api==0.0.13
+numpy==1.23.5
+pandas==1.3.5
+scikit-learn==1.3.2
+requests==2.32.5
