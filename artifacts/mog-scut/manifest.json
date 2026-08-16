@@ -1,0 +1,16 @@
+{
+  "files": {
+    "distribution.json": {
+      "bytes": 69431,
+      "sha256": "acb4e388037a4da50e528bf5ab213c98b494b7df875a77c35e419d8e246fa518"
+    },
+    "metadata.json": {
+      "bytes": 1644,
+      "sha256": "71abb6294792a29405351d84384c1e150df11db3fc2c305bcd7d6ac8448fad32"
+    },
+    "model/attractiveness.onnx": {
+      "bytes": 8885657,
+      "sha256": "072d4024cb5cdfc1ada1b80e7c5ac5f8e8886f7c716d9909140b38828c9b8815"
+    }
+  }
+}
