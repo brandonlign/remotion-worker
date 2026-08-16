@@ -58,20 +58,47 @@ AUDIO_FILE="$SOURCE_DIR/public/automation/voiceover.mp3"
 ALIGNMENT_FILE="$SOURCE_DIR/automation/current/alignment.json"
 SOURCE_RUNTIME_FILE="$SOURCE_DIR/automation/current/audio-runtime.json"
 
-# Restore the immutable voice package with one provider copy instead of
-# starting a separate rclone process for each file. Sequence previews need only
-# the voiceover; full renders also need the alignment/runtime pair.
-printf '%s\n' 'voiceover.mp3' > "$VOICE_NAMES_FILE"
+# Long-form runtime already locks the exact voiceover SHA-256. If Actions
+# restored a cached voiceover, prove it against that committed runtime before
+# trusting it. A missing/stale/wrong cache is deleted and Drive remains the
+# authoritative fallback. Short-form renders keep the existing Drive path.
+CACHED_LONG_VOICE=false
+if [ -s "$AUDIO_FILE" ]; then
+  if node "$WORKER_ROOT/scripts/verify-restored-audio.mjs" \
+    --committed-long \
+    "$SOURCE_RUNTIME_FILE" \
+    "$AUDIO_FILE" \
+    "$JOB_ID" \
+    >/dev/null 2>&1; then
+    CACHED_LONG_VOICE=true
+    echo "Reused SHA-verified cached long-form voiceover."
+  else
+    rm -f "$AUDIO_FILE"
+  fi
+fi
+
+# Restore only the immutable voice-package files that are still needed. Sequence
+# previews need no Drive voice transfer at all after a verified cache hit. Full
+# renders still compare the Drive runtime/alignment package to committed timing,
+# but can avoid retransferring the typically much larger MP3.
+: > "$VOICE_NAMES_FILE"
+if [ "$CACHED_LONG_VOICE" != "true" ]; then
+  printf '%s\n' 'voiceover.mp3' >> "$VOICE_NAMES_FILE"
+fi
 if [ "$RESTORE_MODE" = "render" ]; then
   printf '%s\n' 'alignment.json' 'audio-runtime.json' >> "$VOICE_NAMES_FILE"
 fi
-rclone copy "gdrive:$VOICE_ROOT_PATH" "$VOICE_STAGE_DIR" \
-  --config "$RCLONE_CONFIG_FILE" \
-  --files-from "$VOICE_NAMES_FILE" \
-  --stats 0 \
-  --log-level ERROR
+if [ -s "$VOICE_NAMES_FILE" ]; then
+  rclone copy "gdrive:$VOICE_ROOT_PATH" "$VOICE_STAGE_DIR" \
+    --config "$RCLONE_CONFIG_FILE" \
+    --files-from "$VOICE_NAMES_FILE" \
+    --stats 0 \
+    --log-level ERROR
+fi
 
-cp "$VOICE_STAGE_DIR/voiceover.mp3" "$AUDIO_FILE"
+if [ "$CACHED_LONG_VOICE" != "true" ]; then
+  cp "$VOICE_STAGE_DIR/voiceover.mp3" "$AUDIO_FILE"
+fi
 
 if [ "$RESTORE_MODE" = "render-sequence" ]; then
   if [ ! -s "$AUDIO_FILE" ]; then
