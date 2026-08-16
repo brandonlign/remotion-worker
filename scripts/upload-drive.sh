@@ -1,13 +1,15 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-if [ "$#" -ne 2 ]; then
-  echo "Usage: upload-drive.sh <result-dir> <job-id>" >&2
+if [ "$#" -lt 2 ] || [ "$#" -gt 4 ]; then
+  echo "Usage: upload-drive.sh <result-dir> <job-id> [success|diagnostics] [revision]" >&2
   exit 64
 fi
 
 RESULT_DIR="$1"
 JOB_ID="$2"
+DELIVERY_KIND="${3:-success}"
+REVISION="${4:-}"
 WORKER_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 source "$WORKER_ROOT/scripts/lib/rclone-common.sh"
 source "$WORKER_ROOT/scripts/lib/channel-storage.sh"
@@ -17,6 +19,15 @@ if [ ! -d "$RESULT_DIR" ]; then
   rclone_fail "Result directory does not exist." 66
 fi
 validate_job_id
+case "$DELIVERY_KIND" in
+  success) ;;
+  diagnostics)
+    if ! [[ "$REVISION" =~ ^[1-9][0-9]{0,2}$ ]] || [ "$REVISION" -gt 1000 ]; then
+      rclone_fail "Diagnostic delivery requires revision 1 through 1000." 64
+    fi
+    ;;
+  *) rclone_fail "Delivery kind must be success or diagnostics." 64 ;;
+esac
 prepare_rclone_config "The Drive upload secret is not configured."
 
 if ! python3 - "$RCLONE_CONFIG_FILE" <<'PY'
@@ -67,12 +78,21 @@ if [ "$DUPLICATE_JOB_FOLDERS" -gt 1 ]; then
   rclone_fail "Multiple render folders already exist for this job ID; refusing an ambiguous upload."
 fi
 
-printf 'Upload completed at %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-  > "$RESULT_DIR/upload-complete.txt"
+if [ "$DELIVERY_KIND" = "success" ]; then
+  # Only a successful requested stage may write the canonical completion marker.
+  # Failed attempts are isolated under diagnostics/revision-N and can never make
+  # the canonical job folder look complete.
+  printf 'Upload completed at %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+    > "$RESULT_DIR/upload-complete.txt"
+  TARGET_PATH="$JOB_TARGET_PATH"
+else
+  rm -f "$RESULT_DIR/upload-complete.txt"
+  TARGET_PATH="$JOB_TARGET_PATH/diagnostics/revision-$REVISION"
+fi
 
 rclone copy \
   "$RESULT_DIR" \
-  "gdrive:$JOB_TARGET_PATH" \
+  "gdrive:$TARGET_PATH" \
   --config "$RCLONE_CONFIG_FILE" \
   --transfers 4 \
   --checkers 8 \
