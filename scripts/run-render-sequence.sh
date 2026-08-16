@@ -29,6 +29,7 @@ PREPARE_COMMAND="npm run long:prepare-window"
 PREVIEW_CHECK_COMMAND="npx eslint src && npx tsc --noEmit"
 PREVIEW_CRF=28
 PREVIEW_SCALE="0.5"
+SEQUENCE_REVIEW_FRAME_LIMIT=20
 REMOTION_BIN="$SOURCE_DIR/node_modules/.bin/remotion"
 VISUAL_PLAN="$SOURCE_DIR/automation/current/visual-plan.json"
 
@@ -86,11 +87,12 @@ mkdir -p "$OUTPUT_DIR"
   --frames="${START_FRAME}-${RENDER_END_FRAME}" \
   --log=error
 
-# The workflow places a pinned full FFmpeg/FFprobe bundle on PATH for sequence
-# review derivatives. Keep the rendered MP4 itself as the canonical review
-# video and generate only metadata/stills from that full toolchain.
+# The full review MP4 is the window-review authority. Keep one compact
+# chronological still set/contact sheet for fast scanning, but never decode and
+# upload more stills than the 5x4 contact sheet can represent usefully.
 TELIC_REUSE_SOURCE_AS_REVIEW=1 \
-  bash "$WORKER_ROOT/scripts/create-review-assets.sh" "$PREVIEW_VIDEO" "$OUTPUT_DIR"
+  bash "$WORKER_ROOT/scripts/create-review-assets.sh" \
+    "$PREVIEW_VIDEO" "$OUTPUT_DIR" "$SEQUENCE_REVIEW_FRAME_LIMIT"
 
 node - "$OUTPUT_DIR/status.json" "$JOB_ID" "$SOURCE_SHA" "$SEQUENCE_INDEX" "$START_FRAME" "$END_FRAME" <<'NODE'
 const fs = require("node:fs");
