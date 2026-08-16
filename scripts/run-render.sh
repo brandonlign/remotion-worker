@@ -60,14 +60,14 @@ node "$WORKER_ROOT/scripts/validate-private-render-contract.mjs" \
   "$SOURCE_DIR" render "$COMPOSITION_ID" "$THUMBNAIL_COMPOSITION_ID" "$CONFIGURED_PREPARE_COMMAND" "$CHECK_COMMAND"
 
 # Metadata is cheap and independent of rendered pixels. Reject malformed YouTube
-# handoff data before npm install, asset preparation, or Remotion rendering so a
+# handoff data before dependency setup, asset preparation, or Remotion rendering so a
 # missing chapter/schema field can never waste a full long-form render again.
 node "$WORKER_ROOT/scripts/validate-youtube-metadata.mjs" \
   "$SOURCE_DIR/automation/current/youtube.json" \
   "$JOB_ID"
 
+install_private_dependencies "$INSTALL_COMMAND"
 cd "$SOURCE_DIR"
-bash -o pipefail -c "$INSTALL_COMMAND"
 bash -o pipefail -c "$PREPARE_COMMAND"
 bash -o pipefail -c "$FOCUSED_SOURCE_CHECK"
 bash -o pipefail -c "$FINAL_CONTRACT_COMMAND"
