@@ -29,6 +29,7 @@ fi
 RESTORE_MODE="${REQUEST_MODE:-render}"
 
 source "$WORKER_ROOT/scripts/lib/rclone-common.sh"
+source "$WORKER_ROOT/scripts/lib/channel-storage.sh"
 DRIVE_RUNTIME_FILE="$(mktemp)"
 AUDIO_ROWS_FILE="$(mktemp)"
 VOICE_NAMES_FILE="$(mktemp)"
