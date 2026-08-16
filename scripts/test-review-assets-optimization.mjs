@@ -4,24 +4,35 @@ import fs from "node:fs";
 
 const script = fs.readFileSync(new URL("./create-review-assets.sh", import.meta.url), "utf8");
 
-const ffmpegInvocations = script.match(/^  run_media_tool ffmpeg \\/gm) ?? [];
-assert.equal(ffmpegInvocations.length, 1, "the optional review-MP4 transcode should remain isolated behind the reuse guard");
-assert.equal((script.match(/^run_media_tool ffmpeg \\/gm) ?? []).length, 1, "still review assets should share exactly one ffmpeg decode");
+assert.equal((script.match(/^  run_media_tool ffmpeg \\/gm) ?? []).length, 2, "the two mutually exclusive review paths should each use one ffmpeg invocation");
 assert.equal((script.match(/^run_media_tool ffprobe \\/gm) ?? []).length, 1, "review packaging should use one ffprobe invocation");
 assert.doesNotMatch(script, /^ffmpeg \\/m, "review packaging should keep the media-tool wrapper");
 assert.doesNotMatch(script, /^ffprobe \\/m, "review packaging should keep the media-tool wrapper");
 assert.match(script, /TELIC_REMOTION_BIN/);
 assert.match(script, /TELIC_REUSE_SOURCE_AS_REVIEW/);
+assert.match(script, /if \[ "\$REUSE_SOURCE_AS_REVIEW" = "1" \] && \[ "\$VIDEO" != "\$OUTPUT_DIR\/review\.mp4" \]/);
 assert.match(script, /if \[ "\$REUSE_SOURCE_AS_REVIEW" = "1" \]; then/);
-assert.match(script, /"\$VIDEO" != "\$OUTPUT_DIR\/review\.mp4"/);
 assert.match(script, /"\$REMOTION_BIN" "\$tool" "\$@"/);
 assert.match(script, /"\$tool" "\$@"/);
 
-// Full renders and Shorts retain the original review-video transcode settings.
-assert.match(script, /-vf "scale=540:-2"/);
+// Full renders decode once and split that one decoded stream into the review
+// MP4, chronological stills, and contact sheet while retaining review audio.
+assert.match(script, /split=outputs=3\[review\]\[chron\]\[sheet\]/);
+assert.match(script, /\[review\]scale=w=540:h=-2\[review_out\]/);
+assert.match(script, /\[chron\]fps=fps=\$\{REVIEW_FPS\},scale=w=360:h=-2\[keyframes_out\]/);
+assert.match(script, /\[sheet\]fps=fps=\$\{REVIEW_FPS\},scale=w=210:h=-2,tile=layout=5x4:padding=8:margin=8\[sheet_out\]/);
+assert.match(script, /-map "\[review_out\]"/);
+assert.match(script, /-map "0:a\?"/);
 assert.match(script, /-preset veryfast/);
 assert.match(script, /-crf 28/);
 assert.match(script, /-b:a 96k/);
+assert.match(script, /"\$OUTPUT_DIR\/review\.mp4" \\\n    -map "\[keyframes_out\]"/);
+
+// Sequence previews retain their already-rendered review.mp4 and perform only
+// the derivative-still decode.
+assert.match(script, /fps=fps=\$\{REVIEW_FPS\},split=outputs=2\[keyframes\]\[sheet\]/);
+assert.match(script, /\[keyframes\]scale=w=360:h=-2\[keyframes_out\]/);
+assert.match(script, /\[sheet\]scale=w=210:h=-2,tile=layout=5x4:padding=8:margin=8\[sheet_out\]/);
 
 // Sequence previews retain the established 0.5 fps cadence, while full renders
 // can cap extraction to the maximum number of review frames the quality policy
@@ -30,9 +41,6 @@ assert.match(script, /MAXIMUM_REVIEW_FRAMES="\$\{3:-0\}"/);
 assert.match(script, /REVIEW_FPS="0\.5"/);
 assert.match(script, /maximumFrames - 1/);
 assert.match(script, /Math\.min\(0\.5,/);
-assert.match(script, /fps=fps=\$\{REVIEW_FPS\},split=outputs=2\[keyframes\]\[sheet\]/);
-assert.match(script, /\[keyframes\]scale=w=360:h=-2\[keyframes_out\]/);
-assert.match(script, /\[sheet\]scale=w=210:h=-2,tile=layout=5x4:padding=8:margin=8\[sheet_out\]/);
 assert.match(script, /-map "\[keyframes_out\]"/);
 assert.match(script, /keyframes\/frame-%03d\.jpg/);
 assert.match(script, /-map "\[sheet_out\]"/);
@@ -78,4 +86,4 @@ assert.match(workflow, /source scripts\/ensure-public-ffmpeg\.sh/);
 assert.doesNotMatch(workflow, /Remotion dependency after npm ci/);
 assert.doesNotMatch(workflow, /packages\+=\(rclone\)/);
 
-console.log("Review assets keep useful visual coverage while capping full-render keyframe extraction and preserving accurate QC timestamps.");
+console.log("Review assets use one full-render decode while preserving review audio, useful visual coverage, capped keyframe extraction, and accurate QC timestamps.");
