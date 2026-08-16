@@ -54,7 +54,7 @@ NODE
 
 SYNCED=0
 REUSED=0
-while IFS=$'\t' read -r kind asset_id folder_id file_name source_url transcode; do
+while IFS=$'\t' read -r kind asset_id folder_id file_name source_url force_transcode; do
   [ -n "$asset_id" ] || continue
   set_drive_root "$folder_id"
 
@@ -78,7 +78,12 @@ while IFS=$'\t' read -r kind asset_id folder_id file_name source_url transcode; 
     rclone_fail "Approved Coffee audio source download was empty for ${asset_id}."
   fi
 
-  if [ "$transcode" = "1" ]; then
+  source_codec="$(ffprobe -v error -select_streams a:0 -show_entries stream=codec_name -of csv=p=0 "$source_file" 2>/dev/null | head -n 1 || true)"
+  if [ -z "$source_codec" ]; then
+    rclone_fail "Approved Coffee audio source was not a readable audio file for ${asset_id}."
+  fi
+
+  if [ "$force_transcode" = "1" ] || [ "$source_codec" != "mp3" ]; then
     ffmpeg -hide_banner -loglevel error -y -i "$source_file" -vn -codec:a libmp3lame -q:a 2 "$output_file"
   else
     cp "$source_file" "$output_file"
@@ -88,7 +93,7 @@ while IFS=$'\t' read -r kind asset_id folder_id file_name source_url transcode; 
     rclone_fail "Approved Coffee audio file was invalid after preparation for ${asset_id}."
   fi
   if ! ffprobe -v error -select_streams a:0 -show_entries stream=codec_name -of csv=p=0 "$output_file" | grep -qi '^mp3$'; then
-    rclone_fail "Approved Coffee audio asset ${asset_id} did not validate as MP3."
+    rclone_fail "Approved Coffee audio asset ${asset_id} did not normalize to MP3."
   fi
 
   rclone copyto "$output_file" "gdrive:$file_name" \
