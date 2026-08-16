@@ -27,7 +27,19 @@ assert.ok(metadataPreflight < dependencySetup, "metadata preflight must run befo
 assert.ok(metadataPreflight < render, "metadata preflight must run before expensive Remotion rendering");
 
 assert.match(sequenceScript, /install_private_dependencies "\$INSTALL_COMMAND"/);
-assert.match(voiceScript, /install_private_dependencies "\$INSTALL_COMMAND"/);
+assert.doesNotMatch(voiceScript, /install_private_dependencies|INSTALL_COMMAND|node_modules/);
+assert.match(voiceScript, /restore-existing-long-voice-prep\.sh/);
+assert.match(voiceScript, /RCLONE_CONFIG_B64/);
+assert.match(voiceScript, /npm run voiceover:test/);
+assert.match(voiceScript, /npm run audio:prepare/);
+const voiceReuse = voiceScript.indexOf('restore-existing-long-voice-prep.sh');
+const voiceTests = voiceScript.indexOf('npm run voiceover:test');
+const whisperSetup = voiceScript.indexOf('WHISPERX_VERSION="3.8.6"');
+const audioPrepare = voiceScript.indexOf('npm run audio:prepare');
+assert.ok(voiceReuse >= 0 && voiceReuse < voiceTests, "exact Drive reuse must be attempted before voice tests/generation");
+assert.ok(voiceTests >= 0 && voiceTests < whisperSetup, "lightweight voice tests must fail before expensive WhisperX setup");
+assert.ok(whisperSetup >= 0 && whisperSetup < audioPrepare, "alignment runtime must be ready before production audio preparation");
+
 assert.match(stageCommon, /install_private_dependencies\(\)/);
 assert.match(stageCommon, /\.telic-package-lock-sha256/);
 assert.match(stageCommon, /sha256sum "\$lockfile"/);
@@ -57,12 +69,14 @@ assert.doesNotMatch(qualityGate, /const \[black, silence, freeze\] = await Promi
 
 assert.match(workflow, /Restore verified installed Node dependencies/);
 assert.match(workflow, /id: node_dependencies_cache/);
+assert.match(workflow, /steps\.request\.outputs\.mode != 'voice-prep'/);
 assert.match(workflow, /uses: actions\/cache\/restore@v4/);
 assert.match(workflow, /path: private-source\/node_modules/);
 assert.match(workflow, /telic-remotion-node-modules-v1-\$\{\{ runner\.os \}\}-\$\{\{ runner\.arch \}\}-node22-\$\{\{ hashFiles\('private-source\/package-lock\.json'\) \}\}/);
 assert.match(workflow, /Save verified installed Node dependencies/);
 assert.match(workflow, /steps\.node_dependencies_cache\.outputs\.cache-hit != 'true'/);
 assert.match(workflow, /uses: actions\/cache\/save@v4/);
+assert.match(workflow, /GEMINI_API_KEY: \$\{\{ secrets\.GEMINI_API_KEY \}\}\n          RCLONE_CONFIG_B64: \$\{\{ secrets\.RCLONE_CONFIG_B64 \}\}/);
 
 // Public worker caches may contain public tools/dependencies and opaque success
 // sentinels, never unreleased Telic/Coffee media.
@@ -82,4 +96,4 @@ assert.match(workflow, /Deliver successful private package to Google Drive/);
 assert.match(workflow, /Deliver failed-attempt diagnostics privately/);
 assert.doesNotMatch(workflow, /steps\.(?:audio_restore|render|quality|sequence|voice)\.outputs\.exit_code == '0'/);
 
-console.log("Final renders reuse only public dependency/tool caches, keep private media out of public caches, defer duplicate Actions checksum work, preflight metadata before expensive work, and retain explicit success-only Drive authority.");
+console.log("Final renders reuse only public dependency/tool caches, voice prep skips Remotion dependencies and reuses only exact private Drive output, private media stays out of public caches, and success-only Drive authority remains intact.");
