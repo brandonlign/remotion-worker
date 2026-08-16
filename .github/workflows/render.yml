@@ -82,6 +82,13 @@ jobs:
           restore-keys: |
             telic-remotion-npm-${{ runner.os }}-${{ runner.arch }}-
 
+      - name: Cache verified installed Node dependencies
+        if: steps.request.outputs.mode != 'render' || steps.render_dedupe.outputs.cache-hit != 'true'
+        uses: actions/cache@v4
+        with:
+          path: private-source/node_modules
+          key: telic-remotion-node-modules-v1-${{ runner.os }}-${{ runner.arch }}-node22-${{ hashFiles('private-source/package-lock.json') }}
+
       - name: Cache public rclone binary
         if: steps.request.outputs.mode != 'render' || steps.render_dedupe.outputs.cache-hit != 'true'
         uses: actions/cache@v4
