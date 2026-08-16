@@ -83,7 +83,7 @@ while IFS=$'\t' read -r kind asset_id folder_id file_name source_url force_trans
     rclone_fail "Approved Coffee audio source was not a readable audio file for ${asset_id}."
   fi
 
-  if [ "$force_transcode" = "1" ] || [ "$source_codec" != "mp3" ]; then
+  if [ "$force_transcode" = "1" ] || [[ "$source_codec" != mp3* ]]; then
     ffmpeg -hide_banner -loglevel error -y -i "$source_file" -vn -codec:a libmp3lame -q:a 2 "$output_file"
   else
     cp "$source_file" "$output_file"
@@ -92,8 +92,9 @@ while IFS=$'\t' read -r kind asset_id folder_id file_name source_url force_trans
   if [ ! -s "$output_file" ] || [ "$(stat -c '%s' "$output_file")" -lt 1024 ]; then
     rclone_fail "Approved Coffee audio file was invalid after preparation for ${asset_id}."
   fi
-  if ! ffprobe -v error -select_streams a:0 -show_entries stream=codec_name -of csv=p=0 "$output_file" | grep -qi '^mp3$'; then
-    rclone_fail "Approved Coffee audio asset ${asset_id} did not normalize to MP3."
+  normalized_codec="$(ffprobe -v error -select_streams a:0 -show_entries stream=codec_name -of csv=p=0 "$output_file" 2>/dev/null | head -n 1 || true)"
+  if [[ "$normalized_codec" != mp3* ]]; then
+    rclone_fail "Approved Coffee audio asset ${asset_id} did not normalize to MP3-family audio."
   fi
 
   rclone copyto "$output_file" "gdrive:$file_name" \
