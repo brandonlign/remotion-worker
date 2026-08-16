@@ -27,7 +27,8 @@ const extractDurations = (text, label) => {
   return [...text.matchAll(expression)].map((match) => Number(match[1])).filter((value) => Number.isFinite(value));
 };
 
-const listSampledFrames = async (keyframesDir, maximumFrames) => {
+const listSampledFrames = async (keyframesDir, maximumFrames, reviewFrameFps) => {
+  if (!Number.isFinite(reviewFrameFps) || reviewFrameFps <= 0) throw new Error("The review-frame cadence is invalid.");
   const names = (await fs.readdir(keyframesDir)).filter((name) => /^frame-\d+\.jpg$/i.test(name)).sort((left, right) => left.localeCompare(right));
   if (names.length < 3) throw new Error("The review package has too few keyframes.");
   const count = Math.min(names.length, maximumFrames);
@@ -36,7 +37,11 @@ const listSampledFrames = async (keyframesDir, maximumFrames) => {
   return [...selectedIndexes].sort((a, b) => a - b).map((index) => {
     const name = names[index];
     const frameNumber = Number(name.match(/(\d+)/)?.[1]);
-    return {name, frameNumber, timestampSeconds: Math.max(0, (frameNumber - 1) * 2)};
+    return {
+      name,
+      frameNumber,
+      timestampSeconds: Number(((frameNumber - 1) / reviewFrameFps).toFixed(3)),
+    };
   });
 };
 
@@ -106,7 +111,10 @@ const main = async () => {
     if (inspected.issue) issues.push(inspected.issue);
   }
 
-  const sampledFrames = await listSampledFrames(path.join(resultDir, "keyframes"), maximumFrames);
+  const reviewFrameFps = Number.isFinite(durationSeconds) && durationSeconds > 0
+    ? Number(Math.min(0.5, Math.max(3, maximumFrames - 1) / durationSeconds).toFixed(8))
+    : 0.5;
+  const sampledFrames = await listSampledFrames(path.join(resultDir, "keyframes"), maximumFrames, reviewFrameFps);
   const passed = issues.length === 0;
   const report = {
     version: 4,
@@ -127,6 +135,7 @@ const main = async () => {
       maximumBlackDurationSeconds: Math.max(0, ...blackDurations),
       maximumSilenceDurationSeconds: Math.max(0, ...silenceDurations),
       maximumFreezeDurationSeconds: Math.max(0, ...freezeDurations),
+      reviewFrameFps,
     },
     thumbnail,
     sampledFrames,
