@@ -3,6 +3,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import process from "node:process";
 import {fileURLToPath} from "node:url";
+import {validateRuntimePolicy} from "./validate-runtime-policy.mjs";
 
 const fail = (message) => { throw new Error(message); };
 
@@ -103,7 +104,9 @@ export const validateYoutubeMetadata = async ({youtube, youtubePath, expectedJob
 
 export const validateYoutubeMetadataFile = async ({youtubePath, expectedJobId}) => {
   const resolved = path.resolve(youtubePath);
+  const sourceRoot = path.dirname(path.dirname(path.dirname(resolved)));
   const youtube = await readJson(resolved);
+  await validateRuntimePolicy(sourceRoot);
   return validateYoutubeMetadata({youtube, youtubePath: resolved, expectedJobId});
 };
 
@@ -112,6 +115,6 @@ if (isMain) {
   const [youtubePath, expectedJobId] = process.argv.slice(2);
   if (!youtubePath || !expectedJobId) fail("Usage: validate-youtube-metadata.mjs <youtube.json> <job-id>");
   validateYoutubeMetadataFile({youtubePath, expectedJobId})
-    .then(() => console.log(`Validated YouTube metadata before render for ${expectedJobId}.`))
+    .then(() => console.log(`Validated YouTube metadata and channel runtime before render for ${expectedJobId}.`))
     .catch((error) => { console.error(error instanceof Error ? error.message : String(error)); process.exitCode = 1; });
 }
