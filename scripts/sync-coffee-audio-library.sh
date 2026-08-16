@@ -41,10 +41,23 @@ for (const asset of manifest.assets) {
   if (typeof asset.fileName !== 'string' || !/^[A-Za-z0-9_. -]{3,128}\.mp3$/i.test(asset.fileName)) throw new Error(`Invalid fileName for ${asset.id}.`);
   if (names.has(`${asset.kind}:${asset.fileName}`)) throw new Error(`Duplicate destination filename: ${asset.fileName}`);
   names.add(`${asset.kind}:${asset.fileName}`);
+
   const url = new URL(asset.sourceUrl);
-  if (url.protocol !== 'https:' || url.hostname !== 'assets.mixkit.co') throw new Error(`Asset ${asset.id} must use an approved Mixkit HTTPS source.`);
-  if (typeof asset.sourcePage !== 'string' || !asset.sourcePage.startsWith('https://mixkit.co/')) throw new Error(`Asset ${asset.id} needs a Mixkit sourcePage.`);
-  if (typeof asset.license !== 'string' || !asset.license.startsWith('Mixkit ')) throw new Error(`Asset ${asset.id} needs an explicit Mixkit license.`);
+  if (url.protocol !== 'https:') throw new Error(`Asset ${asset.id} must use HTTPS.`);
+  const isMixkit = url.hostname === 'assets.mixkit.co';
+  const isCommons = url.hostname === 'upload.wikimedia.org';
+  if (!isMixkit && !isCommons) throw new Error(`Asset ${asset.id} uses an unapproved audio source host.`);
+
+  if (typeof asset.sourcePage !== 'string' || !asset.sourcePage.startsWith('https://')) throw new Error(`Asset ${asset.id} needs a sourcePage.`);
+  if (isMixkit) {
+    if (!asset.sourcePage.startsWith('https://mixkit.co/')) throw new Error(`Mixkit asset ${asset.id} needs a Mixkit sourcePage.`);
+    if (typeof asset.license !== 'string' || !asset.license.startsWith('Mixkit ')) throw new Error(`Mixkit asset ${asset.id} needs an explicit Mixkit license.`);
+  } else {
+    if (!asset.sourcePage.startsWith('https://commons.wikimedia.org/wiki/File:')) throw new Error(`Commons asset ${asset.id} needs its Wikimedia Commons file page.`);
+    if (asset.license !== 'Public domain') throw new Error(`Commons asset ${asset.id} must be explicitly verified public domain.`);
+    if (asset.kind !== 'sfx') throw new Error(`Commons assets are only approved for Coffee SFX.`);
+  }
+
   if (asset.transcodeToMp3 !== true && asset.transcodeToMp3 !== false) throw new Error(`Asset ${asset.id} needs transcodeToMp3.`);
   const fields = [asset.kind, asset.id, folders[asset.kind], asset.fileName, asset.sourceUrl, asset.transcodeToMp3 ? '1' : '0'];
   if (fields.some((value) => String(value).includes('\t') || String(value).includes('\n'))) throw new Error(`Asset ${asset.id} contains unsafe control characters.`);
