@@ -44,8 +44,8 @@ for (const asset of manifest.assets) {
   names.add(`${asset.kind}:${asset.fileName}`);
   const url = new URL(asset.sourceUrl);
   if (url.protocol !== 'https:') throw new Error(`Asset ${asset.id} must use HTTPS.`);
-  const allowed = url.hostname === 'assets.mixkit.co' || url.hostname === 'commons.wikimedia.org';
-  if (!allowed) throw new Error(`Asset ${asset.id} uses an unapproved source host.`);
+  const allowedHosts = new Set(['assets.mixkit.co', 'commons.wikimedia.org', 'upload.wikimedia.org']);
+  if (!allowedHosts.has(url.hostname)) throw new Error(`Asset ${asset.id} uses an unapproved source host.`);
   if (typeof asset.sourcePage !== 'string' || !asset.sourcePage.startsWith('https://')) throw new Error(`Asset ${asset.id} needs a sourcePage.`);
   if (typeof asset.license !== 'string' || asset.license.length < 4) throw new Error(`Asset ${asset.id} needs a license.`);
   if (asset.transcodeToMp3 !== true && asset.transcodeToMp3 !== false) throw new Error(`Asset ${asset.id} needs transcodeToMp3.`);
@@ -62,6 +62,7 @@ while IFS=$'\t' read -r kind asset_id folder_id file_name source_url transcode; 
   output_file="$TMP_DIR/${asset_id}.mp3"
 
   curl --fail --location --silent --show-error --retry 3 --retry-all-errors --connect-timeout 20 --max-time 180 \
+    --user-agent "Telic-Coffee-Audio-Ingest/1.0" \
     "$source_url" -o "$source_file"
   if [ ! -s "$source_file" ]; then
     rclone_fail "Approved Coffee audio source download was empty for ${asset_id}."
