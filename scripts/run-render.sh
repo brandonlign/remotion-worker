@@ -37,6 +37,22 @@ else
   FINAL_CONTRACT_COMMAND="npm run custom:contract:test"
 fi
 
+REVIEW_FRAME_LIMIT="$(node - "$SOURCE_DIR/automation/current/job.json" "$SOURCE_DIR/automation/config.json" <<'NODE'
+const fs = require('node:fs');
+const [jobPath, configPath] = process.argv.slice(2);
+const job = JSON.parse(fs.readFileSync(jobPath, 'utf8'));
+const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+const value = job.format === 'long'
+  ? config?.longForm?.quality?.maximumFrames
+  : config?.quality?.maximumFrames;
+const maximumFrames = Number(value);
+if (!Number.isInteger(maximumFrames) || maximumFrames < 3) {
+  throw new Error(`The ${job.format ?? 'short'} review-frame limit is invalid.`);
+}
+process.stdout.write(String(maximumFrames));
+NODE
+)"
+
 node "$WORKER_ROOT/scripts/validate-private-render-contract.mjs" \
   "$SOURCE_DIR" \
   render \
@@ -72,7 +88,7 @@ if [ -n "$THUMBNAIL_COMPOSITION_ID" ]; then
     --log=error
 fi
 
-bash "$WORKER_ROOT/scripts/create-review-assets.sh" "$FINAL_VIDEO" "$OUTPUT_DIR"
+bash "$WORKER_ROOT/scripts/create-review-assets.sh" "$FINAL_VIDEO" "$OUTPUT_DIR" "$REVIEW_FRAME_LIMIT"
 node "$WORKER_ROOT/scripts/create-review-moments.mjs" \
   "$FINAL_VIDEO" \
   "$SOURCE_DIR/automation/current/composition.json" \
