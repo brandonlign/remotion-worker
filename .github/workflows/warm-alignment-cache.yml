@@ -1,5 +1,6 @@
 name: Warm public alignment cache
 
+# Seed revision 1. This workflow contains only public runtime/model material.
 on:
   workflow_dispatch:
   push:
