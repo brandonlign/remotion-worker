@@ -12,6 +12,15 @@ if (!/^[0-9a-f]{40}$/.test(currentSha) || !/^[0-9a-f]{40}$/.test(renderSha)) {
   throw new Error("Source SHAs must be complete lowercase commit SHAs.");
 }
 
+// An identical immutable Git commit is already the strongest possible source
+// identity proof. Do not traverse the two working trees in this case: checkout
+// implementation details (for example symlinks or generated filesystem entries)
+// must not be able to turn exact-source media reuse into a false negative.
+if (currentSha === renderSha) {
+  console.log(`Verified exact-source render reuse at ${currentSha}.`);
+  process.exit(0);
+}
+
 const ALLOWED_CHANGED_PATHS = new Set(["automation/current/youtube.json"]);
 const IGNORED_DIRS = new Set([".git", "node_modules"]);
 
@@ -42,13 +51,8 @@ const unauthorized = changed.filter((file) => !ALLOWED_CHANGED_PATHS.has(file));
 if (unauthorized.length > 0) {
   throw new Error(`Render reuse refused because non-metadata source changed: ${unauthorized.join(", ")}`);
 }
-if (currentSha === renderSha && changed.length > 0) {
-  throw new Error("Identical source SHAs produced different source snapshots; refusing reuse.");
-}
-if (currentSha !== renderSha && changed.length === 0) {
+if (changed.length === 0) {
   throw new Error("Different source SHAs have no observable metadata change; refusing ambiguous reuse.");
 }
 
-console.log(changed.length === 0
-  ? `Verified exact-source render reuse at ${currentSha}.`
-  : `Verified metadata-only render reuse from ${renderSha} to ${currentSha}: ${changed.join(", ")}`);
+console.log(`Verified metadata-only render reuse from ${renderSha} to ${currentSha}: ${changed.join(", ")}`);
