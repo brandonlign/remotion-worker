@@ -36,6 +36,30 @@ result = run();
 assert.equal(result.status, 0, result.stderr);
 assert.equal(result.stdout.trim().split("\t").length, 4);
 
+const coffeeSfx = {
+  id: "cup-land",
+  library: "channel-library-v1",
+  librarySfxId: "cup-set-down",
+  driveFolderId: "sfx_folder_123456789",
+  driveFileId: "sfx_file_12345678901",
+  fileName: "Cup Set Down.wav",
+  assetPath: "public/assets/current/coffee-sfx-cup.wav",
+};
+await fs.writeFile(input, JSON.stringify({
+  qualityVersion: 2,
+  music: coffeeMusic,
+  soundEffects: [
+    {id: "opening-whoosh", assetPath: "public/assets/current/opening-whoosh.wav", frame: 0},
+    coffeeSfx,
+  ],
+}));
+result = run();
+assert.equal(result.status, 0, result.stderr);
+const rows = result.stdout.trim().split("\n");
+assert.equal(rows.length, 2);
+assert.equal(rows[1].split("\t").length, 4);
+assert.match(rows[1], /Cup Set Down\.wav/);
+
 await fs.writeFile(input, JSON.stringify({qualityVersion: 1, music}));
 result = run();
 assert.equal(result.status, 0, result.stderr);
@@ -51,5 +75,15 @@ result = run();
 assert.notEqual(result.status, 0);
 assert.match(result.stderr, /unsafe assetPath/);
 
+await fs.writeFile(input, JSON.stringify({qualityVersion: 2, soundEffects: [{...coffeeSfx, library: "unapproved-library"}]}));
+result = run();
+assert.notEqual(result.status, 0);
+assert.match(result.stderr, /approved channel-owned library/);
+
+await fs.writeFile(input, JSON.stringify({qualityVersion: 2, soundEffects: [{...coffeeSfx, assetPath: "public/assets/current/coffee-sfx-cup.mp3"}]}));
+result = run();
+assert.notEqual(result.status, 0);
+assert.match(result.stderr, /extension does not match/);
+
 await fs.rm(root, {recursive: true, force: true});
-console.log("Private channel music restore request tests passed.");
+console.log("Private channel music/SFX restore request tests passed.");
