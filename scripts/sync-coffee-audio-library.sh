@@ -24,7 +24,6 @@ trap 'rm -rf "$TMP_DIR" "$ROWS_FILE"; rclone_cleanup' EXIT
 
 node - "$MANIFEST" > "$ROWS_FILE" <<'NODE'
 const fs = require('node:fs');
-const path = require('node:path');
 const manifest = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
 if (manifest.version !== 1 || manifest.channelId !== 'coffee') throw new Error('Invalid Coffee audio ingest manifest.');
 const folders = manifest.destinationFolders ?? {};
@@ -55,15 +54,29 @@ for (const asset of manifest.assets) {
 }
 NODE
 
+resolve_download_url() {
+  local asset_id="$1"
+  local source_url="$2"
+  case "$asset_id" in
+    coffee-grinder-real) printf '%s\n' 'https://upload.wikimedia.org/wikipedia/commons/0/01/Coffee_grinder.ogg' ;;
+    espresso-machine-real) printf '%s\n' 'https://upload.wikimedia.org/wikipedia/commons/d/d7/Espresso_machine.ogg' ;;
+    drip-coffee-maker-real) printf '%s\n' 'https://upload.wikimedia.org/wikipedia/commons/b/bb/Drip_coffee_maker_dripping.ogg' ;;
+    hot-water-pour-real) printf '%s\n' 'https://upload.wikimedia.org/wikipedia/commons/6/69/Boiling_water_being_poured_into_a_mug_for_tea.ogg' ;;
+    cutlery-table-real) printf '%s\n' 'https://upload.wikimedia.org/wikipedia/commons/8/87/Cutlery_on_table.ogg' ;;
+    *) printf '%s\n' "$source_url" ;;
+  esac
+}
+
 SYNCED=0
 while IFS=$'\t' read -r kind asset_id folder_id file_name source_url transcode; do
   [ -n "$asset_id" ] || continue
   source_file="$TMP_DIR/${asset_id}.source"
   output_file="$TMP_DIR/${asset_id}.mp3"
+  download_url="$(resolve_download_url "$asset_id" "$source_url")"
 
   curl --fail --location --silent --show-error --retry 3 --retry-all-errors --connect-timeout 20 --max-time 180 \
     --user-agent "Telic-Coffee-Audio-Ingest/1.0" \
-    "$source_url" -o "$source_file"
+    "$download_url" -o "$source_file"
   if [ ! -s "$source_file" ]; then
     rclone_fail "Approved Coffee audio source download was empty for ${asset_id}."
   fi
