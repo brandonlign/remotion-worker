@@ -15,10 +15,10 @@ if [ "$#" -eq 3 ]; then
   REQUEST_MODE="$3"
 elif [ -s "$REQUEST_FILE" ]; then
   REQUEST_MODE="$(node - "$REQUEST_FILE" "$JOB_ID" <<'NODE'
-const fs = require("node:fs");
+const fs = require('node:fs');
 const [requestFile, expectedJobId] = process.argv.slice(2);
 try {
-  const request = JSON.parse(fs.readFileSync(requestFile, "utf8"));
+  const request = JSON.parse(fs.readFileSync(requestFile, 'utf8'));
   if (request.jobId === expectedJobId && ["render", "render-sequence"].includes(request.mode)) {
     process.stdout.write(request.mode);
   }
@@ -31,8 +31,8 @@ RESTORE_MODE="${REQUEST_MODE:-render}"
 source "$WORKER_ROOT/scripts/lib/rclone-common.sh"
 source "$WORKER_ROOT/scripts/lib/channel-storage.sh"
 DRIVE_RUNTIME_FILE="$(mktemp)"
-MUSIC_ROWS_FILE="$(mktemp)"
-trap 'rm -f "${DRIVE_RUNTIME_FILE}" "${MUSIC_ROWS_FILE}"; rclone_cleanup' EXIT
+AUDIO_ROWS_FILE="$(mktemp)"
+trap 'rm -f "${DRIVE_RUNTIME_FILE}" "${AUDIO_ROWS_FILE}"; rclone_cleanup' EXIT
 
 case "$RESTORE_MODE" in
   render|render-sequence) ;;
@@ -103,19 +103,20 @@ else
   esac
 fi
 
-# Productions may request approved channel music through private audio-design.json.
-# The source validates the exact allowlist. This worker transports only those
-# requested Drive files and never commits or logs proprietary media publicly.
-MUSIC_REQUEST_FILE="$SOURCE_DIR/automation/current/audio-design.json"
-if ! node "$WORKER_ROOT/scripts/read-private-music-request.mjs" "$MUSIC_REQUEST_FILE" > "$MUSIC_ROWS_FILE"; then
-  rclone_fail "The private music restore request could not be validated."
+# Productions may request approved channel-owned music and SFX through the
+# private audio-design.json. The private source validates the exact allowlist.
+# This worker transports only those requested Drive files and never commits or
+# logs proprietary media publicly.
+AUDIO_REQUEST_FILE="$SOURCE_DIR/automation/current/audio-design.json"
+if ! node "$WORKER_ROOT/scripts/read-private-music-request.mjs" "$AUDIO_REQUEST_FILE" > "$AUDIO_ROWS_FILE"; then
+  rclone_fail "The private channel audio restore request could not be validated."
 fi
-mapfile -t MUSIC_ROWS < "$MUSIC_ROWS_FILE"
-RESTORED_MUSIC_COUNT=0
-for row in "${MUSIC_ROWS[@]}"; do
+mapfile -t AUDIO_ROWS < "$AUDIO_ROWS_FILE"
+RESTORED_PRIVATE_AUDIO_COUNT=0
+for row in "${AUDIO_ROWS[@]}"; do
   IFS=$'\t' read -r drive_folder_id drive_file_id file_name asset_path <<<"$row"
   if [ -z "$drive_folder_id" ] || [ -z "$drive_file_id" ] || [ -z "$file_name" ] || [ -z "$asset_path" ]; then
-    rclone_fail "The private music restore request is incomplete."
+    rclone_fail "The private channel audio restore request is incomplete."
   fi
 
   set_drive_root "$drive_folder_id"
@@ -131,7 +132,7 @@ if not isinstance(item, dict) or not item.get("ID") or item.get("IsDir"):
 print(item["ID"])
 ')"
   if [ "$actual_id" != "$drive_file_id" ]; then
-    rclone_fail "The selected private channel music file failed provider identity verification."
+    rclone_fail "The selected private channel audio file failed provider identity verification."
   fi
 
   destination="$SOURCE_DIR/$asset_path"
@@ -141,11 +142,11 @@ print(item["ID"])
     --stats 0 \
     --log-level ERROR
   if [ ! -s "$destination" ]; then
-    rclone_fail "A selected private channel music file was not restored."
+    rclone_fail "A selected private channel audio file was not restored."
   fi
-  RESTORED_MUSIC_COUNT=$((RESTORED_MUSIC_COUNT + 1))
+  RESTORED_PRIVATE_AUDIO_COUNT=$((RESTORED_PRIVATE_AUDIO_COUNT + 1))
 done
 
-if [ "$RESTORED_MUSIC_COUNT" -gt 0 ]; then
-  echo "Restored $RESTORED_MUSIC_COUNT private channel music asset(s)."
+if [ "$RESTORED_PRIVATE_AUDIO_COUNT" -gt 0 ]; then
+  echo "Restored $RESTORED_PRIVATE_AUDIO_COUNT private channel audio asset(s)."
 fi
