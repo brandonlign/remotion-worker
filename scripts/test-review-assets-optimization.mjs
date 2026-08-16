@@ -45,6 +45,12 @@ assert.match(fullRender, /config\?\.longForm\?\.quality\?\.maximumFrames/);
 assert.match(fullRender, /config\?\.quality\?\.maximumFrames/);
 assert.match(fullRender, /create-review-assets\.sh" "\$FINAL_VIDEO" "\$OUTPUT_DIR" "\$REVIEW_FRAME_LIMIT"/);
 
+const qualityGate = fs.readFileSync(new URL("./deterministic-quality-gate.mjs", import.meta.url), "utf8");
+assert.match(qualityGate, /reviewFrameFps/);
+assert.match(qualityGate, /Math\.min\(0\.5, Math\.max\(3, maximumFrames - 1\) \/ durationSeconds\)/);
+assert.match(qualityGate, /timestampSeconds: Number\(\(\(frameNumber - 1\) \/ reviewFrameFps\)\.toFixed\(3\)\)/);
+assert.doesNotMatch(qualityGate, /\(frameNumber - 1\) \* 2/);
+
 const sequence = fs.readFileSync(new URL("./run-render-sequence.sh", import.meta.url), "utf8");
 assert.match(sequence, /PREVIEW_VIDEO="\$OUTPUT_DIR\/review\.mp4"/);
 assert.doesNotMatch(sequence, /sequence-preview\.mp4/);
@@ -70,4 +76,4 @@ assert.match(workflow, /source scripts\/ensure-public-ffmpeg\.sh/);
 assert.doesNotMatch(workflow, /Remotion dependency after npm ci/);
 assert.doesNotMatch(workflow, /packages\+=\(rclone\)/);
 
-console.log("Review assets keep useful visual coverage while capping full-render keyframe extraction to the configured QC limit.");
+console.log("Review assets keep useful visual coverage while capping full-render keyframe extraction and preserving accurate QC timestamps.");
