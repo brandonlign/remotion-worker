@@ -37,7 +37,7 @@ assert.equal(resolveSequencePreview(many, 39).sequenceIndex, 39);
 const sequenceRender = fs.readFileSync(new URL("./run-render-sequence.sh", import.meta.url), "utf8");
 const fullRender = fs.readFileSync(new URL("./run-render.sh", import.meta.url), "utf8");
 assert.match(sequenceRender, /PREVIEW_CRF=28/);
-assert.match(sequenceRender, /PREVIEW_SCALE="0\.6666666667"/);
+assert.match(sequenceRender, /PREVIEW_SCALE="0\.5"/);
 assert.match(sequenceRender, /--crf="\$PREVIEW_CRF"/);
 assert.match(sequenceRender, /--scale="\$PREVIEW_SCALE"/);
 assert.match(sequenceRender, /PREVIEW_CHECK_COMMAND="npx eslint src && npx tsc --noEmit"/);
@@ -49,14 +49,13 @@ assert.match(fullRender, /FINAL_CONTRACT_COMMAND="npm run custom:contract:test"/
 assert.doesNotMatch(fullRender, /bash -o pipefail -c "\$CHECK_COMMAND"/);
 assert.doesNotMatch(fullRender, /PREVIEW_CRF|PREVIEW_SCALE|PREVIEW_CHECK_COMMAND/);
 
-// The duplicate audio hash may be skipped only in the exact render workflow,
-// where the sequence step is already gated on successful audio restoration.
-assert.match(sequenceRender, /\$PREPARE_COMMAND" = "npm run long:prepare-window"/);
+// Long sequence preparation is worker-owned. The private config is validated
+// as one of the known-safe long commands, but it does not choose preview mode.
+assert.match(sequenceRender, /CONFIGURED_PREPARE_COMMAND/);
+assert.match(sequenceRender, /PREPARE_COMMAND="npm run long:prepare-window"/);
 assert.match(sequenceRender, /\$\{GITHUB_ACTIONS:-\}" = "true"/);
 assert.match(sequenceRender, /\$\{GITHUB_WORKFLOW:-\}" = "Render private Remotion source"/);
 assert.match(sequenceRender, /node scripts\/autopilot\/prepare-long-window\.mjs/);
-// Direct/manual/legacy invocation must retain the original prepare command,
-// which includes the long-form voiceover integrity hash gate.
 assert.match(sequenceRender, /bash -o pipefail -c "\$PREPARE_COMMAND"/);
 
-console.log("Dynamic long-form sequence preview range, quality, focused-check, and audio-fast-path tests passed.");
+console.log("Dynamic long-form sequence preview range, quality, worker-owned prepare, and audio-fast-path tests passed.");
