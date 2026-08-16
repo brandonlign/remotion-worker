@@ -86,9 +86,12 @@ if [ -n "$THUMBNAIL_COMPOSITION_ID" ]; then
     --frame=0 --log=error
 fi
 
+# The full review video + chronological frames/contact sheet are the default
+# review package. Exact semantic still extraction remains available through
+# create-review-moments.mjs only when a reviewer has a concrete crop/readability/
+# sync question; do not decode every full render again just because moments were
+# declared in composition.json.
 bash "$WORKER_ROOT/scripts/create-review-assets.sh" "$FINAL_VIDEO" "$OUTPUT_DIR" "$REVIEW_FRAME_LIMIT"
-node "$WORKER_ROOT/scripts/create-review-moments.mjs" \
-  "$FINAL_VIDEO" "$SOURCE_DIR/automation/current/composition.json" "$OUTPUT_DIR/review-moments"
 
 for artifact in automation/current/alignment.json automation/current/audio-runtime.json automation/current/composition.json; do
   if [ -s "$SOURCE_DIR/$artifact" ]; then cp "$SOURCE_DIR/$artifact" "$OUTPUT_DIR/$(basename "$artifact")"; fi
