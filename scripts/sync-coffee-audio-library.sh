@@ -42,11 +42,9 @@ for (const asset of manifest.assets) {
   if (names.has(`${asset.kind}:${asset.fileName}`)) throw new Error(`Duplicate destination filename: ${asset.fileName}`);
   names.add(`${asset.kind}:${asset.fileName}`);
   const url = new URL(asset.sourceUrl);
-  if (url.protocol !== 'https:') throw new Error(`Asset ${asset.id} must use HTTPS.`);
-  const allowedHosts = new Set(['assets.mixkit.co', 'commons.wikimedia.org', 'upload.wikimedia.org']);
-  if (!allowedHosts.has(url.hostname)) throw new Error(`Asset ${asset.id} uses an unapproved source host.`);
-  if (typeof asset.sourcePage !== 'string' || !asset.sourcePage.startsWith('https://')) throw new Error(`Asset ${asset.id} needs a sourcePage.`);
-  if (typeof asset.license !== 'string' || asset.license.length < 4) throw new Error(`Asset ${asset.id} needs a license.`);
+  if (url.protocol !== 'https:' || url.hostname !== 'assets.mixkit.co') throw new Error(`Asset ${asset.id} must use an approved Mixkit HTTPS source.`);
+  if (typeof asset.sourcePage !== 'string' || !asset.sourcePage.startsWith('https://mixkit.co/')) throw new Error(`Asset ${asset.id} needs a Mixkit sourcePage.`);
+  if (typeof asset.license !== 'string' || !asset.license.startsWith('Mixkit ')) throw new Error(`Asset ${asset.id} needs an explicit Mixkit license.`);
   if (asset.transcodeToMp3 !== true && asset.transcodeToMp3 !== false) throw new Error(`Asset ${asset.id} needs transcodeToMp3.`);
   const fields = [asset.kind, asset.id, folders[asset.kind], asset.fileName, asset.sourceUrl, asset.transcodeToMp3 ? '1' : '0'];
   if (fields.some((value) => String(value).includes('\t') || String(value).includes('\n'))) throw new Error(`Asset ${asset.id} contains unsafe control characters.`);
@@ -54,29 +52,28 @@ for (const asset of manifest.assets) {
 }
 NODE
 
-resolve_download_url() {
-  local asset_id="$1"
-  local source_url="$2"
-  case "$asset_id" in
-    coffee-grinder-real) printf '%s\n' 'https://upload.wikimedia.org/wikipedia/commons/0/01/Coffee_grinder.ogg' ;;
-    espresso-machine-real) printf '%s\n' 'https://upload.wikimedia.org/wikipedia/commons/d/d7/Espresso_machine.ogg' ;;
-    drip-coffee-maker-real) printf '%s\n' 'https://upload.wikimedia.org/wikipedia/commons/b/bb/Drip_coffee_maker_dripping.ogg' ;;
-    hot-water-pour-real) printf '%s\n' 'https://upload.wikimedia.org/wikipedia/commons/6/69/Boiling_water_being_poured_into_a_mug_for_tea.ogg' ;;
-    cutlery-table-real) printf '%s\n' 'https://upload.wikimedia.org/wikipedia/commons/8/87/Cutlery_on_table.ogg' ;;
-    *) printf '%s\n' "$source_url" ;;
-  esac
-}
-
 SYNCED=0
+REUSED=0
 while IFS=$'\t' read -r kind asset_id folder_id file_name source_url transcode; do
   [ -n "$asset_id" ] || continue
+  set_drive_root "$folder_id"
+
+  existing="$(rclone lsjson "gdrive:$file_name" \
+    --config "$RCLONE_CONFIG_FILE" \
+    --stat \
+    --files-only \
+    --log-level ERROR 2>/dev/null || true)"
+  if printf '%s' "$existing" | python3 -c 'import json,sys; raw=sys.stdin.read().strip(); item=json.loads(raw) if raw else {}; raise SystemExit(0 if isinstance(item,dict) and item.get("ID") and not item.get("IsDir") and int(item.get("Size") or 0)>0 else 1)'; then
+    REUSED=$((REUSED + 1))
+    echo "Verified existing Coffee ${kind} asset: ${asset_id}."
+    continue
+  fi
+
   source_file="$TMP_DIR/${asset_id}.source"
   output_file="$TMP_DIR/${asset_id}.mp3"
-  download_url="$(resolve_download_url "$asset_id" "$source_url")"
-
   curl --fail --location --silent --show-error --retry 3 --retry-all-errors --connect-timeout 20 --max-time 180 \
     --user-agent "Telic-Coffee-Audio-Ingest/1.0" \
-    "$download_url" -o "$source_file"
+    "$source_url" -o "$source_file"
   if [ ! -s "$source_file" ]; then
     rclone_fail "Approved Coffee audio source download was empty for ${asset_id}."
   fi
@@ -94,7 +91,6 @@ while IFS=$'\t' read -r kind asset_id folder_id file_name source_url transcode; 
     rclone_fail "Approved Coffee audio asset ${asset_id} did not validate as MP3."
   fi
 
-  set_drive_root "$folder_id"
   rclone copyto "$output_file" "gdrive:$file_name" \
     --config "$RCLONE_CONFIG_FILE" \
     --stats 0 \
@@ -112,4 +108,4 @@ while IFS=$'\t' read -r kind asset_id folder_id file_name source_url transcode; 
   echo "Synced approved Coffee ${kind} asset: ${asset_id}."
 done < "$ROWS_FILE"
 
-echo "Coffee professional audio ingest completed: ${SYNCED} assets verified in private Drive storage."
+echo "Coffee professional audio ingest completed: ${SYNCED} new assets synced, ${REUSED} existing assets verified."
