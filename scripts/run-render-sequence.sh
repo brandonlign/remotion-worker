@@ -23,11 +23,12 @@ OUTPUT_ROOT="$OUTPUT_DIR"
 ENTRY_POINT="$(source_config_field entryPoint)"
 COMPOSITION_ID="$(source_config_field compositionId)"
 INSTALL_COMMAND="$(source_config_field installCommand)"
-PREPARE_COMMAND="$(source_config_field prepareCommand)"
+CONFIGURED_PREPARE_COMMAND="$(source_config_field prepareCommand)"
 CHECK_COMMAND="$(source_config_field checkCommand)"
+PREPARE_COMMAND="npm run long:prepare-window"
 PREVIEW_CHECK_COMMAND="npx eslint src && npx tsc --noEmit"
 PREVIEW_CRF=28
-PREVIEW_SCALE="0.6666666667"
+PREVIEW_SCALE="0.5"
 REMOTION_BIN="$SOURCE_DIR/node_modules/.bin/remotion"
 VISUAL_PLAN="$SOURCE_DIR/automation/current/visual-plan.json"
 
@@ -36,19 +37,19 @@ node "$WORKER_ROOT/scripts/validate-private-render-contract.mjs" \
   render-sequence \
   "$COMPOSITION_ID" \
   "" \
-  "$PREPARE_COMMAND" \
+  "$CONFIGURED_PREPARE_COMMAND" \
   "$CHECK_COMMAND"
 
 cd "$SOURCE_DIR"
 bash -o pipefail -c "$INSTALL_COMMAND"
-if [ "$PREPARE_COMMAND" = "npm run long:prepare-window" ] \
-  && [ "${GITHUB_ACTIONS:-}" = "true" ] \
+if [ "${GITHUB_ACTIONS:-}" = "true" ] \
   && [ "${GITHUB_WORKFLOW:-}" = "Render private Remotion source" ]; then
   # The sequence step in this workflow runs only after audio restore succeeds.
   # That restore already checked the frozen runtime and exact MP3 SHA-256.
   node scripts/autopilot/prepare-long-window.mjs
 else
-  # Keep the original integrity gate for direct/manual/legacy invocation.
+  # Direct/manual invocation still uses the same worker-owned canonical window
+  # preparation command rather than trusting mutable private stage state.
   bash -o pipefail -c "$PREPARE_COMMAND"
 fi
 # Sequence previews need video-code safety, not the entire controller/installer
