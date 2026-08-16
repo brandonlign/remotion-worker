@@ -91,15 +91,19 @@ const main = async () => {
   if (Number(videoStreams[0]?.width) !== expectedWidth || Number(videoStreams[0]?.height) !== expectedHeight) issues.push(`The final ${format} frame size is not ${expectedWidth} by ${expectedHeight}.`);
   if (!Number.isFinite(durationSeconds) || durationSeconds < minimumDurationSeconds || durationSeconds > maximumDurationSeconds) issues.push(`The final duration is outside the autonomous ${format} limits.`);
 
-  const [black, silence, freeze] = await Promise.all([
-    runCapture("ffmpeg", ["-hide_banner", "-loglevel", "info", "-i", videoPath, "-vf", `blackdetect=d=${quality.maximumBlackSeconds}:pic_th=0.98:pix_th=0.10`, "-an", "-f", "null", "-"]),
-    runCapture("ffmpeg", ["-hide_banner", "-loglevel", "info", "-i", videoPath, "-af", `silencedetect=n=-45dB:d=${quality.maximumSilenceSeconds}`, "-vn", "-f", "null", "-"]),
-    runCapture("ffmpeg", ["-hide_banner", "-loglevel", "info", "-i", videoPath, "-vf", `freezedetect=n=-50dB:d=${quality.maximumFreezeSeconds}`, "-an", "-f", "null", "-"]),
+  // Analyze black segments, freezes, and silence in one decode pass. These
+  // filters are observational, so combining them preserves the same signals
+  // while avoiding multiple full-video decodes of the authoritative render.
+  const mediaAnalysis = await runCapture("ffmpeg", [
+    "-hide_banner", "-loglevel", "info", "-i", videoPath,
+    "-vf", `blackdetect=d=${quality.maximumBlackSeconds}:pic_th=0.98:pix_th=0.10,freezedetect=n=-50dB:d=${quality.maximumFreezeSeconds}`,
+    "-af", `silencedetect=n=-45dB:d=${quality.maximumSilenceSeconds}`,
+    "-f", "null", "-",
   ]);
 
-  const blackDurations = extractDurations(black.stderr, "black_duration");
-  const silenceDurations = extractDurations(silence.stderr, "silence_duration");
-  const freezeDurations = extractDurations(freeze.stderr, "freeze_duration");
+  const blackDurations = extractDurations(mediaAnalysis.stderr, "black_duration");
+  const silenceDurations = extractDurations(mediaAnalysis.stderr, "silence_duration");
+  const freezeDurations = extractDurations(mediaAnalysis.stderr, "freeze_duration");
   if (blackDurations.some((value) => value >= quality.maximumBlackSeconds)) issues.push("The final video contains an extended black segment.");
   if (silenceDurations.some((value) => value >= quality.maximumSilenceSeconds)) issues.push("The final video contains an extended silent segment.");
   if (freezeDurations.some((value) => value >= quality.maximumFreezeSeconds)) issues.push("The final video contains an extended frozen segment.");
