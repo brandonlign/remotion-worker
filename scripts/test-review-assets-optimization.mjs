@@ -69,9 +69,11 @@ const workflow = fs.readFileSync(new URL("../.github/workflows/render.yml", impo
 assert.match(workflow, /name: Cache public rclone binary/);
 assert.match(workflow, /key: telic-rclone-v1\.75\.0-\$\{\{ runner\.os \}\}-\$\{\{ runner\.arch \}\}/);
 assert.match(workflow, /source scripts\/ensure-public-rclone\.sh/);
-assert.match(workflow, /name: Cache public full FFmpeg preview tools/);
+assert.match(workflow, /name: Cache public full FFmpeg tools/);
 assert.match(workflow, /key: telic-ffmpeg-n8\.1-btbn-20260813-\$\{\{ runner\.os \}\}-\$\{\{ runner\.arch \}\}-py3/);
-assert.match(workflow, /if: steps\.request\.outputs\.mode == 'render-sequence'/);
+assert.match(workflow, /steps\.request\.outputs\.mode == 'render-sequence' \|\|/);
+assert.match(workflow, /steps\.request\.outputs\.mode == 'render' && steps\.render_dedupe\.outputs\.cache-hit != 'true'/);
+assert.match(workflow, /if \[\[ "\$RENDER_MODE" == "render-sequence" \|\| "\$RENDER_MODE" == "render" \]\]; then/);
 assert.match(workflow, /source scripts\/ensure-public-ffmpeg\.sh/);
 assert.doesNotMatch(workflow, /Remotion dependency after npm ci/);
 assert.doesNotMatch(workflow, /packages\+=\(rclone\)/);
