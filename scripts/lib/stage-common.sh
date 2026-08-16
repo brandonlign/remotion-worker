@@ -95,6 +95,13 @@ install_private_dependencies() {
 
 write_checksums() {
   local directory="$1"
+  if [ "${GITHUB_ACTIONS:-}" = "true" ] \
+    && [ "${GITHUB_WORKFLOW:-}" = "Render private Remotion source" ]; then
+    # render.yml performs one authoritative checksum pass after stage logs and
+    # deterministic QC have been added. Avoid rereading large MP4s twice.
+    echo "Deferring checksums to the workflow's final package pass."
+    return 0
+  fi
   find "$directory" -type f ! -name checksums.txt -print0 \
     | sort -z \
     | xargs -0 -r sha256sum \
