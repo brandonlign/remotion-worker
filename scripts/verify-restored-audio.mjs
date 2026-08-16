@@ -5,6 +5,7 @@ import path from "node:path";
 import {fileURLToPath} from "node:url";
 
 const SHA256_PATTERN = /^[0-9a-f]{64}$/;
+const SOURCE_SHA_PATTERN = /^[0-9a-f]{40}$/;
 
 const readJson = async (filePath) => JSON.parse(await fs.readFile(filePath, "utf8"));
 const readJsonOptional = async (filePath) => {
@@ -75,6 +76,27 @@ export const verifyCommittedLongAudio = async ({sourceRuntimePath, audioPath, ex
   return verifyLongAudio({runtime, audioPath, expectedJobId});
 };
 
+export const verifyReusableLongVoicePrep = async ({runtimePath, alignmentPath, audioPath, narrationPath, expectedJobId, expectedSourceSha}) => {
+  if (!expectedJobId) throw new Error("Reusable long voice verification requires a job ID.");
+  if (!SOURCE_SHA_PATTERN.test(String(expectedSourceSha ?? ""))) throw new Error("Reusable long voice verification requires an exact source SHA.");
+  const [runtime, alignment, narrationSha256] = await Promise.all([
+    readJson(runtimePath),
+    readJson(alignmentPath),
+    sha256File(narrationPath),
+  ]);
+
+  if (runtime?.format !== "long") throw new Error("Reusable Drive voice runtime is not long form.");
+  if (runtime.jobId !== expectedJobId) throw new Error("Reusable Drive voice runtime belongs to another job.");
+  if (runtime.scriptSourceSha !== expectedSourceSha) throw new Error("Reusable Drive voice runtime belongs to another source commit.");
+  if (runtime.narrationSha256 !== narrationSha256) throw new Error("Reusable Drive voice runtime does not match the current narration bytes.");
+  if (runtime.exactAlignment !== true || runtime.alignmentProvider !== "whisperx") throw new Error("Reusable Drive voice runtime is not exact WhisperX timing.");
+  if (runtime.voiceProvider !== "gemini") throw new Error("Reusable Drive voice runtime does not use the locked Gemini provider.");
+  if (alignment?.exactAlignment !== true || alignment?.alignmentProvider !== "whisperx") throw new Error("Reusable Drive alignment artifact is not exact WhisperX timing.");
+
+  const verified = await verifyLongAudio({runtime, audioPath, expectedJobId});
+  return {...verified, narrationSha256};
+};
+
 export const verifyRestoredAudio = async ({sourceRuntimePath, driveRuntimePath, audioPath}) => {
   const [sourceRuntime, driveRuntime] = await Promise.all([
     readJsonOptional(sourceRuntimePath),
@@ -107,6 +129,13 @@ if (isMain) {
       throw new Error("Usage: node scripts/verify-restored-audio.mjs --committed-long <source-runtime.json> <voiceover.mp3> <job-id>");
     }
     const result = await verifyCommittedLongAudio({sourceRuntimePath, audioPath, expectedJobId});
+    process.stdout.write(`${result.format}\n`);
+  } else if (args[0] === "--reusable-long-voice") {
+    const [, runtimePath, alignmentPath, audioPath, narrationPath, expectedJobId, expectedSourceSha] = args;
+    if (!runtimePath || !alignmentPath || !audioPath || !narrationPath || !expectedJobId || !expectedSourceSha) {
+      throw new Error("Usage: node scripts/verify-restored-audio.mjs --reusable-long-voice <runtime.json> <alignment.json> <voiceover.mp3> <narration.txt> <job-id> <source-sha>");
+    }
+    const result = await verifyReusableLongVoicePrep({runtimePath, alignmentPath, audioPath, narrationPath, expectedJobId, expectedSourceSha});
     process.stdout.write(`${result.format}\n`);
   } else {
     const [sourceRuntimePath, driveRuntimePath, audioPath] = args;
