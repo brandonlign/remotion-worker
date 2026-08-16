@@ -86,5 +86,23 @@ jobs:
         with:
           node-version: 22
 
+      # render/* PRs cannot modify reusable worker code: the scope gate above
+      # proves they contain only isolated request JSON. Validate those request
+      # schemas directly instead of rerunning the entire worker regression suite
+      # for every long-form window revision.
+      - name: Validate render request files
+        if: startsWith(github.head_ref, 'render/')
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          if [ -f jobs/request.json ]; then
+            node scripts/validate-job.mjs jobs/request.json >/dev/null
+          fi
+          if [ -f jobs/finalize-request.json ]; then
+            node scripts/validate-finalize-job.mjs jobs/finalize-request.json >/dev/null
+          fi
+          echo "Request-only render PR validation passed; reusable worker code is inherited from validated main."
+
       - name: Validate worker files
+        if: ${{ !startsWith(github.head_ref, 'render/') }}
         run: npm run check
