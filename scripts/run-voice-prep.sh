@@ -48,8 +48,8 @@ export HF_HOME="${HF_HOME:-$HOME/.cache/huggingface}"
 export TELIC_ALIGN_MODEL_DIR="${TELIC_ALIGN_MODEL_DIR:-$TORCH_HOME/telic-align-models}"
 mkdir -p "$TORCH_HOME" "$HF_HOME" "$TELIC_ALIGN_MODEL_DIR"
 
+install_private_dependencies "$INSTALL_COMMAND"
 cd "$SOURCE_DIR"
-bash -o pipefail -c "$INSTALL_COMMAND"
 npm run voiceover:test
 npm run audio:prepare
 
