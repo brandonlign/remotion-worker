@@ -155,8 +155,10 @@ jobs:
           printf '%s\n' "$code" > "$RUNNER_TEMP/render-result/exit-code.txt"
           echo "exit_code=$code" >> "$GITHUB_OUTPUT"
           if [ "$code" -eq 0 ]; then
+            echo "ok=true" >> "$GITHUB_OUTPUT"
             echo "Private voiceover and exact forced-alignment package completed."
           else
+            echo "ok=false" >> "$GITHUB_OUTPUT"
             echo "Private voice preparation failed; preserving diagnostics."
           fi
           exit 0
@@ -181,8 +183,10 @@ jobs:
           cp "$RUNNER_TEMP/private-audio-restore.log" "$RUNNER_TEMP/render-result/private-audio-restore.log"
           echo "exit_code=$code" >> "$GITHUB_OUTPUT"
           if [ "$code" -eq 0 ]; then
+            echo "ok=true" >> "$GITHUB_OUTPUT"
             echo "Restored the locked voice package for private rendering."
           else
+            echo "ok=false" >> "$GITHUB_OUTPUT"
             echo "Could not restore the locked voice package."
           fi
           exit 0
@@ -191,7 +195,7 @@ jobs:
         id: sequence
         if: >-
           steps.request.outputs.mode == 'render-sequence' &&
-          steps.audio_restore.outputs.exit_code == '0'
+          steps.audio_restore.outputs.ok == 'true'
         shell: bash
         env:
           JOB_ID: ${{ steps.request.outputs.job_id }}
@@ -210,8 +214,10 @@ jobs:
           printf '%s\n' "$code" > "$RUNNER_TEMP/render-result/sequence-exit-code.txt"
           echo "exit_code=$code" >> "$GITHUB_OUTPUT"
           if [ "$code" -eq 0 ]; then
+            echo "ok=true" >> "$GITHUB_OUTPUT"
             echo "Private long-form sequence preview completed."
           else
+            echo "ok=false" >> "$GITHUB_OUTPUT"
             echo "Private long-form sequence preview failed; preserving diagnostics."
           fi
           exit 0
@@ -221,7 +227,7 @@ jobs:
         if: >-
           steps.request.outputs.mode == 'render' &&
           steps.render_dedupe.outputs.cache-hit != 'true' &&
-          steps.audio_restore.outputs.exit_code == '0'
+          steps.audio_restore.outputs.ok == 'true'
         shell: bash
         env:
           JOB_ID: ${{ steps.request.outputs.job_id }}
@@ -238,8 +244,10 @@ jobs:
           printf '%s\n' "$code" > "$RUNNER_TEMP/render-result/exit-code.txt"
           echo "exit_code=$code" >> "$GITHUB_OUTPUT"
           if [ "$code" -eq 0 ]; then
+            echo "ok=true" >> "$GITHUB_OUTPUT"
             echo "Private custom render completed; running deterministic media QC."
           else
+            echo "ok=false" >> "$GITHUB_OUTPUT"
             echo "Private custom render failed; preserving the private diagnostic package."
           fi
           exit 0
@@ -249,7 +257,7 @@ jobs:
         if: >-
           steps.request.outputs.mode == 'render' &&
           steps.render_dedupe.outputs.cache-hit != 'true' &&
-          steps.render.outputs.exit_code == '0'
+          steps.render.outputs.ok == 'true'
         shell: bash
         run: |
           set +e
@@ -262,8 +270,10 @@ jobs:
           cp "$RUNNER_TEMP/private-quality.log" "$RUNNER_TEMP/render-result/private-quality.log"
           echo "exit_code=$code" >> "$GITHUB_OUTPUT"
           if [ "$code" -eq 0 ]; then
+            echo "ok=true" >> "$GITHUB_OUTPUT"
             echo "Deterministic media QC passed; the render PR remains open for ChatGPT visual review."
           else
+            echo "ok=false" >> "$GITHUB_OUTPUT"
             echo "Deterministic media QC rejected the render."
             node - "$RUNNER_TEMP/render-result/quality-gate.json" <<'NODE'
           const fs = require("node:fs");
@@ -285,11 +295,25 @@ jobs:
             | xargs -0 -r sha256sum \
             > "$RUNNER_TEMP/render-result/checksums.txt"
 
-      - name: Deliver private package to Google Drive
+      - name: Deliver successful private package to Google Drive
         id: drive
         if: >-
-          always() &&
-          (steps.request.outputs.mode != 'render' || steps.render_dedupe.outputs.cache-hit != 'true')
+          (
+            steps.request.outputs.mode == 'voice-prep' &&
+            steps.voice.outputs.ok == 'true'
+          ) ||
+          (
+            steps.request.outputs.mode == 'render-sequence' &&
+            steps.audio_restore.outputs.ok == 'true' &&
+            steps.sequence.outputs.ok == 'true'
+          ) ||
+          (
+            steps.request.outputs.mode == 'render' &&
+            steps.render_dedupe.outputs.cache-hit != 'true' &&
+            steps.audio_restore.outputs.ok == 'true' &&
+            steps.render.outputs.ok == 'true' &&
+            steps.quality.outputs.ok == 'true'
+          )
         shell: bash
         env:
           RCLONE_CONFIG_B64: ${{ secrets.RCLONE_CONFIG_B64 }}
@@ -298,11 +322,58 @@ jobs:
           if bash scripts/upload-drive.sh \
             "$RUNNER_TEMP/render-result" \
             "$JOB_ID" \
+            success \
             >"$RUNNER_TEMP/private-upload.log" 2>&1; then
-            echo "Private Drive delivery completed."
+            echo "Private canonical Drive delivery completed."
           else
-            echo "Private Drive delivery failed."
+            echo "Private canonical Drive delivery failed."
             tail -n 8 "$RUNNER_TEMP/private-upload.log" \
+              | sed -E 's/(token|client_secret|refresh_token|access_token)[[:space:]]*=[[:space:]]*[^[:space:]]+/\1=[REDACTED]/Ig'
+            exit 1
+          fi
+
+      - name: Deliver failed-attempt diagnostics privately
+        id: diagnostic_drive
+        if: >-
+          always() &&
+          (
+            (
+              steps.request.outputs.mode == 'voice-prep' &&
+              steps.voice.outputs.ok != 'true'
+            ) ||
+            (
+              steps.request.outputs.mode == 'render-sequence' &&
+              (
+                steps.audio_restore.outputs.ok != 'true' ||
+                steps.sequence.outputs.ok != 'true'
+              )
+            ) ||
+            (
+              steps.request.outputs.mode == 'render' &&
+              steps.render_dedupe.outputs.cache-hit != 'true' &&
+              (
+                steps.audio_restore.outputs.ok != 'true' ||
+                steps.render.outputs.ok != 'true' ||
+                steps.quality.outputs.ok != 'true'
+              )
+            )
+          )
+        shell: bash
+        env:
+          RCLONE_CONFIG_B64: ${{ secrets.RCLONE_CONFIG_B64 }}
+          JOB_ID: ${{ steps.request.outputs.job_id }}
+          REVISION: ${{ steps.request.outputs.revision }}
+        run: |
+          if bash scripts/upload-drive.sh \
+            "$RUNNER_TEMP/render-result" \
+            "$JOB_ID" \
+            diagnostics \
+            "$REVISION" \
+            >"$RUNNER_TEMP/private-diagnostic-upload.log" 2>&1; then
+            echo "Private failed-attempt diagnostics stored outside the canonical success package."
+          else
+            echo "Private diagnostic Drive delivery failed."
+            tail -n 8 "$RUNNER_TEMP/private-diagnostic-upload.log" \
               | sed -E 's/(token|client_secret|refresh_token|access_token)[[:space:]]*=[[:space:]]*[^[:space:]]+/\1=[REDACTED]/Ig'
             exit 1
           fi
@@ -311,9 +382,9 @@ jobs:
         if: >-
           steps.request.outputs.mode == 'render' &&
           steps.render_dedupe.outputs.cache-hit != 'true' &&
-          steps.audio_restore.outputs.exit_code == '0' &&
-          steps.render.outputs.exit_code == '0' &&
-          steps.quality.outputs.exit_code == '0' &&
+          steps.audio_restore.outputs.ok == 'true' &&
+          steps.render.outputs.ok == 'true' &&
+          steps.quality.outputs.ok == 'true' &&
           steps.drive.outcome == 'success'
         shell: bash
         run: |
@@ -324,9 +395,9 @@ jobs:
         if: >-
           steps.request.outputs.mode == 'render' &&
           steps.render_dedupe.outputs.cache-hit != 'true' &&
-          steps.audio_restore.outputs.exit_code == '0' &&
-          steps.render.outputs.exit_code == '0' &&
-          steps.quality.outputs.exit_code == '0' &&
+          steps.audio_restore.outputs.ok == 'true' &&
+          steps.render.outputs.ok == 'true' &&
+          steps.quality.outputs.ok == 'true' &&
           steps.drive.outcome == 'success'
         uses: actions/cache/save@v4
         with:
@@ -343,27 +414,39 @@ jobs:
           (
             (
               steps.request.outputs.mode == 'voice-prep' &&
-              (steps.voice.outputs.exit_code != '0' || steps.drive.outcome != 'success')
+              (
+                steps.voice.outputs.ok != 'true' ||
+                (steps.voice.outputs.ok == 'true' && steps.drive.outcome != 'success')
+              )
             ) ||
             (
               steps.request.outputs.mode == 'render-sequence' &&
               (
-                steps.audio_restore.outputs.exit_code != '0' ||
-                steps.sequence.outputs.exit_code != '0' ||
-                steps.drive.outcome != 'success'
+                steps.audio_restore.outputs.ok != 'true' ||
+                steps.sequence.outputs.ok != 'true' ||
+                (
+                  steps.audio_restore.outputs.ok == 'true' &&
+                  steps.sequence.outputs.ok == 'true' &&
+                  steps.drive.outcome != 'success'
+                )
               )
             ) ||
             (
               steps.request.outputs.mode == 'render' &&
               steps.render_dedupe.outputs.cache-hit != 'true' &&
               (
-                steps.audio_restore.outputs.exit_code != '0' ||
-                steps.render.outputs.exit_code != '0' ||
-                steps.quality.outputs.exit_code != '0' ||
-                steps.drive.outcome != 'success'
+                steps.audio_restore.outputs.ok != 'true' ||
+                steps.render.outputs.ok != 'true' ||
+                steps.quality.outputs.ok != 'true' ||
+                (
+                  steps.audio_restore.outputs.ok == 'true' &&
+                  steps.render.outputs.ok == 'true' &&
+                  steps.quality.outputs.ok == 'true' &&
+                  steps.drive.outcome != 'success'
+                )
               )
             )
           )
         run: |
-          echo "The requested private voice, sequence preview, or full render stage failed. Private diagnostics were retained when possible."
+          echo "The requested private voice, sequence preview, or full render stage failed. Failure diagnostics were isolated from the canonical Drive success package when possible."
           exit 1
