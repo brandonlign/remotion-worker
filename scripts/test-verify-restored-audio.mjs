@@ -108,11 +108,12 @@ try {
   assert.match(restoreScript, /REQUEST_FILE="\$WORKER_ROOT\/jobs\/request\.json"/);
   assert.match(restoreScript, /if \[ "\$RESTORE_MODE" = "render-sequence" \]; then/);
   assert.match(restoreScript, /--committed-long/);
-  assert.match(restoreScript, /copy_voice_artifact alignment\.json/);
-  assert.match(restoreScript, /copy_voice_artifact audio-runtime\.json/);
   assert.match(restoreScript, /source "\$WORKER_ROOT\/scripts\/lib\/channel-storage\.sh"/);
   assert.match(restoreScript, /VOICE_ROOT_PATH="\$\(render_root_for_job_id "\$JOB_ID"\)\/\$JOB_ID"/);
-  assert.match(restoreScript, /gdrive:\$VOICE_ROOT_PATH\/\$name/);
+  assert.match(restoreScript, /rclone copy "gdrive:\$VOICE_ROOT_PATH" "\$VOICE_STAGE_DIR"/);
+  assert.match(restoreScript, /--files-from "\$VOICE_NAMES_FILE"/);
+  assert.match(restoreScript, /'alignment\.json' 'audio-runtime\.json'/);
+  assert.doesNotMatch(restoreScript, /copy_voice_artifact/);
   assert.doesNotMatch(restoreScript, /VOICE_ROOT_PATH="Telic-Renders/);
   assert.doesNotMatch(restoreScript, /use_telic_renders_root/);
   assert.doesNotMatch(restoreScript, /TELIC_AUDIO_LOCATOR_DIR/);
