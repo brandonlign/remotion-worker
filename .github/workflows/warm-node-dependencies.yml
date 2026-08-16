@@ -1,0 +1,82 @@
+name: Warm public Node dependency cache
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/warm-node-dependencies.yml
+      - .github/workflows/render.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: warm-public-node-dependencies
+  cancel-in-progress: true
+
+jobs:
+  warm:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Check out worker
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      # Trusted main may inspect the private lockfile to determine dependency
+      # identity, but the shared cache path itself contains only installed public
+      # npm packages plus an opaque lockfile SHA marker. No private source files,
+      # assets, narration, audio, or render output are cached.
+      - name: Check out private dependency manifest
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ secrets.SOURCE_REPOSITORY }}
+          ref: main
+          token: ${{ secrets.SOURCE_REPO_TOKEN }}
+          path: private-source
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: Restore public installed dependencies
+        id: dependencies_cache
+        uses: actions/cache/restore@v4
+        with:
+          path: private-source/node_modules
+          key: telic-remotion-node-modules-v1-${{ runner.os }}-${{ runner.arch }}-node22-${{ hashFiles('private-source/package-lock.json') }}
+
+      - name: Build verified public dependency tree
+        if: steps.dependencies_cache.outputs.cache-hit != 'true'
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          cd private-source
+          npm ci --no-audit --no-fund
+          lock_sha="$(sha256sum package-lock.json | awk '{print $1}')"
+          test -x node_modules/.bin/remotion
+          printf '%s\n' "$lock_sha" > node_modules/.telic-package-lock-sha256
+
+      - name: Verify public dependency cache identity
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          cd private-source
+          expected="$(sha256sum package-lock.json | awk '{print $1}')"
+          actual="$(tr -d '[:space:]' < node_modules/.telic-package-lock-sha256)"
+          test "$actual" = "$expected"
+          test -x node_modules/.bin/remotion
+
+      - name: Save public installed dependencies
+        if: steps.dependencies_cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: private-source/node_modules
+          key: telic-remotion-node-modules-v1-${{ runner.os }}-${{ runner.arch }}-node22-${{ hashFiles('private-source/package-lock.json') }}
+
+      - name: Remove private checkout
+        if: always()
+        run: rm -rf private-source
