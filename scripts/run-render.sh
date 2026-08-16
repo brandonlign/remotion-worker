@@ -29,9 +29,6 @@ process.stdout.write(String(job?.format || ''));
 NODE
 )"
 
-# Long-form preview and final rendering share one immutable private source
-# contract. The public worker, not an AI-authored source mutation, owns which
-# canonical preparation command corresponds to the requested render mode.
 PREPARE_COMMAND="$CONFIGURED_PREPARE_COMMAND"
 if [ "$JOB_FORMAT" = "long" ]; then
   PREPARE_COMMAND="npm run long:prepare"
@@ -41,11 +38,6 @@ FINAL_VIDEO="$OUTPUT_DIR/${OUTPUT_NAME}.mp4"
 THUMBNAIL_FILE="$OUTPUT_DIR/thumbnail.png"
 REMOTION_BIN="$SOURCE_DIR/node_modules/.bin/remotion"
 FOCUSED_SOURCE_CHECK="npx eslint src && npx tsc --noEmit"
-
-# The configured checkCommand remains part of the private-source contract, but
-# final rendering should not rerun unrelated controller/installer/publisher
-# regression suites. Keep code safety plus the production contract that matches
-# the format being rendered.
 if [ "$JOB_FORMAT" = "long" ]; then
   FINAL_CONTRACT_COMMAND="npm run long:contract:test"
 else
@@ -57,24 +49,22 @@ const fs = require('node:fs');
 const [jobPath, configPath] = process.argv.slice(2);
 const job = JSON.parse(fs.readFileSync(jobPath, 'utf8'));
 const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
-const value = job.format === 'long'
-  ? config?.longForm?.quality?.maximumFrames
-  : config?.quality?.maximumFrames;
+const value = job.format === 'long' ? config?.longForm?.quality?.maximumFrames : config?.quality?.maximumFrames;
 const maximumFrames = Number(value);
-if (!Number.isInteger(maximumFrames) || maximumFrames < 3) {
-  throw new Error(`The ${job.format ?? 'short'} review-frame limit is invalid.`);
-}
+if (!Number.isInteger(maximumFrames) || maximumFrames < 3) throw new Error(`The ${job.format ?? 'short'} review-frame limit is invalid.`);
 process.stdout.write(String(maximumFrames));
 NODE
 )"
 
 node "$WORKER_ROOT/scripts/validate-private-render-contract.mjs" \
-  "$SOURCE_DIR" \
-  render \
-  "$COMPOSITION_ID" \
-  "$THUMBNAIL_COMPOSITION_ID" \
-  "$CONFIGURED_PREPARE_COMMAND" \
-  "$CHECK_COMMAND"
+  "$SOURCE_DIR" render "$COMPOSITION_ID" "$THUMBNAIL_COMPOSITION_ID" "$CONFIGURED_PREPARE_COMMAND" "$CHECK_COMMAND"
+
+# Metadata is cheap and independent of rendered pixels. Reject malformed YouTube
+# handoff data before npm install, asset preparation, or Remotion rendering so a
+# missing chapter/schema field can never waste a full long-form render again.
+node "$WORKER_ROOT/scripts/validate-youtube-metadata.mjs" \
+  "$SOURCE_DIR/automation/current/youtube.json" \
+  "$JOB_ID"
 
 cd "$SOURCE_DIR"
 bash -o pipefail -c "$INSTALL_COMMAND"
@@ -87,54 +77,34 @@ if [ ! -x "$REMOTION_BIN" ]; then
 fi
 
 "$REMOTION_BIN" render \
-  "$ENTRY_POINT" \
-  "$COMPOSITION_ID" \
-  "$FINAL_VIDEO" \
-  --codec=h264 \
-  --crf="$CRF" \
-  --log=error
+  "$ENTRY_POINT" "$COMPOSITION_ID" "$FINAL_VIDEO" \
+  --codec=h264 --crf="$CRF" --log=error
 
 if [ -n "$THUMBNAIL_COMPOSITION_ID" ]; then
   "$REMOTION_BIN" still \
-    "$ENTRY_POINT" \
-    "$THUMBNAIL_COMPOSITION_ID" \
-    "$THUMBNAIL_FILE" \
-    --frame=0 \
-    --log=error
+    "$ENTRY_POINT" "$THUMBNAIL_COMPOSITION_ID" "$THUMBNAIL_FILE" \
+    --frame=0 --log=error
 fi
 
 bash "$WORKER_ROOT/scripts/create-review-assets.sh" "$FINAL_VIDEO" "$OUTPUT_DIR" "$REVIEW_FRAME_LIMIT"
 node "$WORKER_ROOT/scripts/create-review-moments.mjs" \
-  "$FINAL_VIDEO" \
-  "$SOURCE_DIR/automation/current/composition.json" \
-  "$OUTPUT_DIR/review-moments"
+  "$FINAL_VIDEO" "$SOURCE_DIR/automation/current/composition.json" "$OUTPUT_DIR/review-moments"
 
-for artifact in \
-  automation/current/alignment.json \
-  automation/current/audio-runtime.json \
-  automation/current/composition.json; do
-  if [ -s "$SOURCE_DIR/$artifact" ]; then
-    cp "$SOURCE_DIR/$artifact" "$OUTPUT_DIR/$(basename "$artifact")"
-  fi
+for artifact in automation/current/alignment.json automation/current/audio-runtime.json automation/current/composition.json; do
+  if [ -s "$SOURCE_DIR/$artifact" ]; then cp "$SOURCE_DIR/$artifact" "$OUTPUT_DIR/$(basename "$artifact")"; fi
 done
 
 node - "$OUTPUT_DIR/status.json" "$JOB_ID" "$SOURCE_SHA" "$OUTPUT_NAME" "$THUMBNAIL_COMPOSITION_ID" <<'NODE'
 const fs = require("node:fs");
 const [outputFile, jobId, sourceSha, outputName, thumbnailCompositionId] = process.argv.slice(2);
 fs.writeFileSync(outputFile, `${JSON.stringify({
-  status: "complete",
-  jobId,
-  sourceSha,
-  outputName,
+  status: "complete", jobId, sourceSha, outputName,
   thumbnailCompositionId: thumbnailCompositionId || null,
   completedAt: new Date().toISOString(),
 }, null, 2)}\n`);
 NODE
 
 node "$WORKER_ROOT/scripts/create-controller-handoff.mjs" \
-  "$OUTPUT_DIR" \
-  "$SOURCE_DIR/automation/current/youtube.json" \
-  "$JOB_ID" \
-  "$SOURCE_SHA"
+  "$OUTPUT_DIR" "$SOURCE_DIR/automation/current/youtube.json" "$JOB_ID" "$SOURCE_SHA"
 
 write_checksums "$OUTPUT_DIR"
