@@ -38,8 +38,10 @@ const sequenceRender = fs.readFileSync(new URL("./run-render-sequence.sh", impor
 const fullRender = fs.readFileSync(new URL("./run-render.sh", import.meta.url), "utf8");
 assert.match(sequenceRender, /PREVIEW_CRF=28/);
 assert.match(sequenceRender, /PREVIEW_SCALE="0\.5"/);
+assert.match(sequenceRender, /SEQUENCE_REVIEW_FRAME_LIMIT=20/);
 assert.match(sequenceRender, /--crf="\$PREVIEW_CRF"/);
 assert.match(sequenceRender, /--scale="\$PREVIEW_SCALE"/);
+assert.match(sequenceRender, /create-review-assets\.sh" \\\n    "\$PREVIEW_VIDEO" "\$OUTPUT_DIR" "\$SEQUENCE_REVIEW_FRAME_LIMIT"/);
 assert.match(sequenceRender, /PREVIEW_CHECK_COMMAND="npx eslint src && npx tsc --noEmit"/);
 assert.match(sequenceRender, /bash -o pipefail -c "\$PREVIEW_CHECK_COMMAND"/);
 assert.doesNotMatch(sequenceRender, /bash -o pipefail -c "\$CHECK_COMMAND"/);
@@ -58,4 +60,4 @@ assert.match(sequenceRender, /\$\{GITHUB_WORKFLOW:-\}" = "Render private Remotio
 assert.match(sequenceRender, /node scripts\/autopilot\/prepare-long-window\.mjs/);
 assert.match(sequenceRender, /bash -o pipefail -c "\$PREPARE_COMMAND"/);
 
-console.log("Dynamic long-form sequence preview range, quality, worker-owned prepare, and audio-fast-path tests passed.");
+console.log("Dynamic long-form sequence preview range, quality, bounded review derivatives, worker-owned prepare, and audio-fast-path tests passed.");
