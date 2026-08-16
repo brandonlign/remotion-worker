@@ -36,7 +36,7 @@ jobs:
           curl --fail --location --silent --show-error "$BASE/fluid/water-bubble.mp3" -o "$OUT/sfx/water-bubble-1317.mp3"
           curl --fail --location --silent --show-error "$BASE/fluid/water-splash.mp3" -o "$OUT/sfx/water-splash-1311.mp3"
           curl --fail --location --silent --show-error "$BASE/glass/glass-plate-slide.mp3" -o "$OUT/sfx/glass-plate-slide-1527.mp3"
-          curl --fail --location --silent --show-error "$BASE/transition/sweep-short.mp3" -o "$OUT/sfx/short-transition-sweep.mp3"
+          curl --fail --location --silent --show-error "$BASE/transition/sweep-fast-small.mp3" -o "$OUT/sfx/fast-small-sweep-166.mp3"
 
           cat > "$OUT/manifest.json" <<'JSON'
           {
@@ -83,8 +83,9 @@ jobs:
                 "transportMirror": "Vincentwei1021/video-shotcraft@0d6f0b57f0d4d6700761644c07f7ef03c3e50234"
               },
               {
-                "fileName": "short-transition-sweep.mp3",
-                "title": "Short transition sweep",
+                "fileName": "fast-small-sweep-166.mp3",
+                "title": "Fast small sweep transition",
+                "mixkitId": 166,
                 "sourcePage": "https://mixkit.co/free-sound-effects/transition/",
                 "transportMirror": "Vincentwei1021/video-shotcraft@0d6f0b57f0d4d6700761644c07f7ef03c3e50234"
               }
@@ -92,10 +93,20 @@ jobs:
           }
           JSON
 
-          for f in "$OUT"/music/*.mp3 "$OUT"/sfx/*.mp3; do
-            test -s "$f"
-            ffprobe -v error -show_entries format=duration -of default=nk=1:nw=1 "$f" >/dev/null
-          done
+          python3 - "$OUT" <<'PY'
+          import pathlib, sys
+          root = pathlib.Path(sys.argv[1])
+          files = list((root / 'music').glob('*.mp3')) + list((root / 'sfx').glob('*.mp3'))
+          if len(files) != 6:
+              raise SystemExit(f'Expected 6 audio files, found {len(files)}')
+          for f in files:
+              data = f.read_bytes()
+              if len(data) < 5000:
+                  raise SystemExit(f'Audio file too small: {f.name}')
+              if not (data[:3] == b'ID3' or (len(data) >= 2 and data[0] == 0xFF and (data[1] & 0xE0) == 0xE0)):
+                  raise SystemExit(f'Audio file is not recognizable MP3 data: {f.name}')
+          print(f'Validated {len(files)} MP3 files.')
+          PY
           sha256sum "$OUT"/music/*.mp3 "$OUT"/sfx/*.mp3 > "$OUT/audio-sha256.txt"
 
       - name: Upload candidates privately to Coffee Drive staging
