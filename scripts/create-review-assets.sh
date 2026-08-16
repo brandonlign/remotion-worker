@@ -50,28 +50,9 @@ run_media_tool ffprobe \
   "$VIDEO" \
   > "$OUTPUT_DIR/media-metadata.json"
 
-if [ "$REUSE_SOURCE_AS_REVIEW" = "1" ]; then
-  # render-sequence already produces a deliberately low-quality review video.
-  # Require it to be the canonical review.mp4 so callers cannot accidentally
-  # skip packaging while leaving no review video behind.
-  if [ "$VIDEO" != "$OUTPUT_DIR/review.mp4" ]; then
-    echo "TELIC_REUSE_SOURCE_AS_REVIEW requires the source video to be output-dir/review.mp4." >&2
-    exit 64
-  fi
-else
-  run_media_tool ffmpeg \
-    -hide_banner \
-    -loglevel error \
-    -y \
-    -i "$VIDEO" \
-    -vf "scale=540:-2" \
-    -c:v libx264 \
-    -preset veryfast \
-    -crf 28 \
-    -c:a aac \
-    -b:a 96k \
-    -movflags +faststart \
-    "$OUTPUT_DIR/review.mp4"
+if [ "$REUSE_SOURCE_AS_REVIEW" = "1" ] && [ "$VIDEO" != "$OUTPUT_DIR/review.mp4" ]; then
+  echo "TELIC_REUSE_SOURCE_AS_REVIEW requires the source video to be output-dir/review.mp4." >&2
+  exit 64
 fi
 
 # Sequence previews keep the established 0.5 fps cadence. Full renders pass
@@ -95,19 +76,47 @@ NODE
 )"
 fi
 
-# Decode once for the chronological review frames and compact contact sheet.
-# The configured cadence is capped for full renders but remains unchanged for
-# sequence previews, where the short window itself is the review target.
-run_media_tool ffmpeg \
-  -hide_banner \
-  -loglevel error \
-  -y \
-  -i "$VIDEO" \
-  -filter_complex "[0:v]fps=fps=${REVIEW_FPS},split=outputs=2[keyframes][sheet];[keyframes]scale=w=360:h=-2[keyframes_out];[sheet]scale=w=210:h=-2,tile=layout=5x4:padding=8:margin=8[sheet_out]" \
-  -map "[keyframes_out]" \
-  -q:v 3 \
-  "$OUTPUT_DIR/keyframes/frame-%03d.jpg" \
-  -map "[sheet_out]" \
-  -frames:v 1 \
-  -q:v 3 \
-  "$OUTPUT_DIR/contact-sheet.jpg"
+if [ "$REUSE_SOURCE_AS_REVIEW" = "1" ]; then
+  # The sequence render is already the canonical low-resolution review MP4, so
+  # decode it once only for chronological stills/contact-sheet derivatives.
+  run_media_tool ffmpeg \
+    -hide_banner \
+    -loglevel error \
+    -y \
+    -i "$VIDEO" \
+    -filter_complex "[0:v]fps=fps=${REVIEW_FPS},split=outputs=2[keyframes][sheet];[keyframes]scale=w=360:h=-2[keyframes_out];[sheet]scale=w=210:h=-2,tile=layout=5x4:padding=8:margin=8[sheet_out]" \
+    -map "[keyframes_out]" \
+    -q:v 3 \
+    "$OUTPUT_DIR/keyframes/frame-%03d.jpg" \
+    -map "[sheet_out]" \
+    -frames:v 1 \
+    -q:v 3 \
+    "$OUTPUT_DIR/contact-sheet.jpg"
+else
+  # Full renders previously decoded the final MP4 once for review.mp4 and again
+  # for review stills. Split one decoded video stream three ways so the private
+  # review MP4, chronological frames, and contact sheet are all produced in one
+  # pass. Preserve the established review-video codec/audio settings exactly.
+  run_media_tool ffmpeg \
+    -hide_banner \
+    -loglevel error \
+    -y \
+    -i "$VIDEO" \
+    -filter_complex "[0:v]split=outputs=3[review][chron][sheet];[review]scale=w=540:h=-2[review_out];[chron]fps=fps=${REVIEW_FPS},scale=w=360:h=-2[keyframes_out];[sheet]fps=fps=${REVIEW_FPS},scale=w=210:h=-2,tile=layout=5x4:padding=8:margin=8[sheet_out]" \
+    -map "[review_out]" \
+    -map "0:a?" \
+    -c:v libx264 \
+    -preset veryfast \
+    -crf 28 \
+    -c:a aac \
+    -b:a 96k \
+    -movflags +faststart \
+    "$OUTPUT_DIR/review.mp4" \
+    -map "[keyframes_out]" \
+    -q:v 3 \
+    "$OUTPUT_DIR/keyframes/frame-%03d.jpg" \
+    -map "[sheet_out]" \
+    -frames:v 1 \
+    -q:v 3 \
+    "$OUTPUT_DIR/contact-sheet.jpg"
+fi
