@@ -20,8 +20,10 @@ const run = (command, args, {expectFailure = false} = {}) => new Promise((resolv
 const writeTree = async (root, youtubeText, sourceText = "same source") => {
   await fs.mkdir(path.join(root, "automation/current"), {recursive: true});
   await fs.mkdir(path.join(root, "src"), {recursive: true});
+  await fs.mkdir(path.join(root, ".agent/skills"), {recursive: true});
   await fs.writeFile(path.join(root, "automation/current/youtube.json"), youtubeText);
   await fs.writeFile(path.join(root, "src/index.ts"), sourceText);
+  await fs.symlink("../../shared/mediabunny", path.join(root, ".agent/skills/mediabunny"));
 };
 
 const main = async () => {
@@ -45,6 +47,12 @@ const main = async () => {
     const renderSha = "fedcba9876543210fedcba9876543210fedcba98";
 
     await run(process.execPath, ["scripts/verify-metadata-only-reuse.mjs", current, rendered, currentSha, renderSha]);
+
+    await fs.unlink(path.join(current, ".agent/skills/mediabunny"));
+    await fs.symlink("../../shared/other-tool", path.join(current, ".agent/skills/mediabunny"));
+    await run(process.execPath, ["scripts/verify-metadata-only-reuse.mjs", current, rendered, currentSha, renderSha], {expectFailure: true});
+    await fs.unlink(path.join(current, ".agent/skills/mediabunny"));
+    await fs.symlink("../../shared/mediabunny", path.join(current, ".agent/skills/mediabunny"));
 
     await fs.writeFile(path.join(current, "src/index.ts"), "changed pixels");
     await run(process.execPath, ["scripts/verify-metadata-only-reuse.mjs", current, rendered, currentSha, renderSha], {expectFailure: true});
