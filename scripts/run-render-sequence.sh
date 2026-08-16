@@ -40,8 +40,8 @@ node "$WORKER_ROOT/scripts/validate-private-render-contract.mjs" \
   "$CONFIGURED_PREPARE_COMMAND" \
   "$CHECK_COMMAND"
 
+install_private_dependencies "$INSTALL_COMMAND"
 cd "$SOURCE_DIR"
-bash -o pipefail -c "$INSTALL_COMMAND"
 if [ "${GITHUB_ACTIONS:-}" = "true" ] \
   && [ "${GITHUB_WORKFLOW:-}" = "Render private Remotion source" ]; then
   # The sequence step in this workflow runs only after audio restore succeeds.
