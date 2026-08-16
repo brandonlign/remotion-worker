@@ -1,7 +1,6 @@
 {
   "jobId": "coffee-long-20260816-001501z-75387a",
   "sourceSha": "c79c2c3afa3cc085d547c77100aeef31ab6e34c8",
-  "revision": 29,
-  "mode": "render-sequence",
-  "sequenceIndex": 0
+  "revision": 30,
+  "mode": "render"
 }
