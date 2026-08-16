@@ -1,4 +1,4 @@
-name: Temporary Coffee audio import
+name: Temporary Coffee audio cleanup
 
 on:
   push:
@@ -10,110 +10,25 @@ permissions:
   contents: read
 
 jobs:
-  import:
+  cleanup:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 5
     env:
       JOB_ID: coffee-audio-import-20260816
     steps:
       - uses: actions/checkout@v4
-
-      - name: Download pinned licensed audio candidates
-        shell: bash
-        run: |
-          set -Eeuo pipefail
-          OUT="$RUNNER_TEMP/coffee-audio"
-          mkdir -p "$OUT/music" "$OUT/sfx"
-
-          curl --fail --location --silent --show-error \
-            'https://raw.githubusercontent.com/hafiy-hz/ITProject/2476d32420a2f5779bff473fb94431bd63188f30/Sounds/mixkit-serene-view-443.mp3' \
-            -o "$OUT/music/serene-view-443.mp3"
-          curl --fail --location --silent --show-error \
-            'https://raw.githubusercontent.com/mindaugasrukas/life_duel/2ec43a8669589d5aa571e25e3c052f74cfeb8975/games/sounds/mixkit-sweet-september-282.mp3' \
-            -o "$OUT/music/sweet-september-282.mp3"
-
-          BASE='https://raw.githubusercontent.com/Vincentwei1021/video-shotcraft/0d6f0b57f0d4d6700761644c07f7ef03c3e50234/assets/audio/sfx'
-          curl --fail --location --silent --show-error "$BASE/fluid/water-bubble.mp3" -o "$OUT/sfx/water-bubble-1317.mp3"
-          curl --fail --location --silent --show-error "$BASE/fluid/water-splash.mp3" -o "$OUT/sfx/water-splash-1311.mp3"
-          curl --fail --location --silent --show-error "$BASE/glass/glass-plate-slide.mp3" -o "$OUT/sfx/glass-plate-slide-1527.mp3"
-          curl --fail --location --silent --show-error "$BASE/transition/sweep-fast-small.mp3" -o "$OUT/sfx/fast-small-sweep-166.mp3"
-
-          cat > "$OUT/manifest.json" <<'JSON'
-          {
-            "library": "Coffee licensed starter audio v1",
-            "license": "Mixkit License / Mixkit Sound Effects Free License",
-            "music": [
-              {
-                "fileName": "serene-view-443.mp3",
-                "title": "Serene View",
-                "creator": "Arulo",
-                "mixkitId": 443,
-                "sourcePage": "https://mixkit.co/free-stock-music/",
-                "transportMirror": "hafiy-hz/ITProject@2476d32420a2f5779bff473fb94431bd63188f30"
-              },
-              {
-                "fileName": "sweet-september-282.mp3",
-                "title": "Sweet September",
-                "creator": "Arulo",
-                "mixkitId": 282,
-                "sourcePage": "https://mixkit.co/free-stock-music/lo-fi-beats/",
-                "transportMirror": "mindaugasrukas/life_duel@2ec43a8669589d5aa571e25e3c052f74cfeb8975"
-              }
-            ],
-            "sfx": [
-              {
-                "fileName": "water-bubble-1317.mp3",
-                "title": "Water bubble",
-                "mixkitId": 1317,
-                "sourcePage": "https://mixkit.co/free-sound-effects/water/",
-                "transportMirror": "Vincentwei1021/video-shotcraft@0d6f0b57f0d4d6700761644c07f7ef03c3e50234"
-              },
-              {
-                "fileName": "water-splash-1311.mp3",
-                "title": "Water splash",
-                "mixkitId": 1311,
-                "sourcePage": "https://mixkit.co/free-sound-effects/water/",
-                "transportMirror": "Vincentwei1021/video-shotcraft@0d6f0b57f0d4d6700761644c07f7ef03c3e50234"
-              },
-              {
-                "fileName": "glass-plate-slide-1527.mp3",
-                "title": "Glass plate slide",
-                "mixkitId": 1527,
-                "sourcePage": "https://mixkit.co/free-sound-effects/glass/",
-                "transportMirror": "Vincentwei1021/video-shotcraft@0d6f0b57f0d4d6700761644c07f7ef03c3e50234"
-              },
-              {
-                "fileName": "fast-small-sweep-166.mp3",
-                "title": "Fast small sweep transition",
-                "mixkitId": 166,
-                "sourcePage": "https://mixkit.co/free-sound-effects/transition/",
-                "transportMirror": "Vincentwei1021/video-shotcraft@0d6f0b57f0d4d6700761644c07f7ef03c3e50234"
-              }
-            ]
-          }
-          JSON
-
-          python3 - "$OUT" <<'PY'
-          import pathlib, sys
-          root = pathlib.Path(sys.argv[1])
-          files = list((root / 'music').glob('*.mp3')) + list((root / 'sfx').glob('*.mp3'))
-          if len(files) != 6:
-              raise SystemExit(f'Expected 6 audio files, found {len(files)}')
-          for f in files:
-              data = f.read_bytes()
-              if len(data) < 5000:
-                  raise SystemExit(f'Audio file too small: {f.name}')
-              if not (data[:3] == b'ID3' or (len(data) >= 2 and data[0] == 0xFF and (data[1] & 0xE0) == 0xE0)):
-                  raise SystemExit(f'Audio file is not recognizable MP3 data: {f.name}')
-          print(f'Validated {len(files)} MP3 files.')
-          PY
-          sha256sum "$OUT"/music/*.mp3 "$OUT"/sfx/*.mp3 > "$OUT/audio-sha256.txt"
-
-      - name: Upload candidates privately to Coffee Drive staging
+      - name: Remove temporary private Drive staging
         shell: bash
         env:
           RCLONE_CONFIG_B64: ${{ secrets.RCLONE_CONFIG_B64 }}
         run: |
           set -Eeuo pipefail
           source scripts/ensure-public-rclone.sh
-          bash scripts/upload-drive.sh "$RUNNER_TEMP/coffee-audio" "$JOB_ID"
+          source scripts/lib/rclone-common.sh
+          source scripts/lib/channel-storage.sh
+          validate_job_id
+          prepare_rclone_config "The Drive credential is not configured."
+          trap rclone_cleanup EXIT
+          ROOT="$(render_root_for_job_id "$JOB_ID")/$JOB_ID"
+          rclone purge "gdrive:$ROOT" --config "$RCLONE_CONFIG_FILE" --stats 0 --log-level ERROR
+          echo "Removed temporary Coffee audio staging."
