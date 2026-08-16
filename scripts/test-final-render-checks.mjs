@@ -35,6 +35,10 @@ assert.match(stageCommon, /cached_sha.*lock_sha/s);
 assert.match(stageCommon, /\[ -x "\$node_modules\/\.bin\/remotion" \]/);
 assert.match(stageCommon, /falling back to the configured clean install/);
 assert.match(stageCommon, /bash -o pipefail -c "\$install_command"/);
+assert.match(stageCommon, /GITHUB_WORKFLOW:-.*Render private Remotion source/s);
+assert.match(stageCommon, /Deferring checksums to the workflow's final package pass/);
+assert.match(workflow, /- name: Refresh private checksums/);
+assert.match(workflow, /find "\$RUNNER_TEMP\/render-result" -type f ! -name checksums\.txt/);
 
 assert.match(script, /"\$REMOTION_BIN" render/);
 assert.match(script, /--codec=h264/);
@@ -62,4 +66,4 @@ assert.match(workflow, /Deliver successful private package to Google Drive/);
 assert.match(workflow, /Deliver failed-attempt diagnostics privately/);
 assert.doesNotMatch(workflow, /steps\.(?:audio_restore|render|quality|sequence|voice)\.outputs\.exit_code == '0'/);
 
-console.log("Final renders reuse only lockfile-verified cached dependencies, preflight metadata before expensive work, and retain explicit success-only Drive authority.");
+console.log("Final renders reuse only lockfile-verified cached dependencies, defer duplicate Actions checksum work, preflight metadata before expensive work, and retain explicit success-only Drive authority.");
