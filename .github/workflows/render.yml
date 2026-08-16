@@ -89,8 +89,10 @@ jobs:
           path: ~/.cache/telic-tools/rclone-v1.75.0
           key: telic-rclone-v1.75.0-${{ runner.os }}-${{ runner.arch }}
 
-      - name: Cache public full FFmpeg preview tools
-        if: steps.request.outputs.mode == 'render-sequence'
+      - name: Cache public full FFmpeg tools
+        if: >-
+          steps.request.outputs.mode == 'render-sequence' ||
+          (steps.request.outputs.mode == 'render' && steps.render_dedupe.outputs.cache-hit != 'true')
         uses: actions/cache@v4
         with:
           path: ~/.cache/telic-tools/ffmpeg-n8.1-btbn-20260813
@@ -111,11 +113,11 @@ jobs:
 
           packages=()
 
-          # Window previews need a full FFmpeg build for review stills. Use the
-          # pinned/checksummed public bundle instead of Remotion's intentionally
-          # minimal bundled FFmpeg. Voice-prep and final render retain the
-          # distro FFmpeg compatibility path.
-          if [[ "$RENDER_MODE" == "render-sequence" ]]; then
+          # Sequence previews and final render review/QC both need full FFmpeg
+          # + ffprobe. Reuse the same checksum-verified public bundle instead of
+          # cold-installing the distro package on every successful final render.
+          # The helper keeps the distro path as a compatibility fallback.
+          if [[ "$RENDER_MODE" == "render-sequence" || "$RENDER_MODE" == "render" ]]; then
             source scripts/ensure-public-ffmpeg.sh
           elif ! command -v ffmpeg >/dev/null 2>&1; then
             packages+=(ffmpeg)
