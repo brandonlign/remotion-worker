@@ -19,28 +19,36 @@ try {
     schemaVersion: 2,
     format: "long",
     jobId: "telic-long-test",
+    channelId: "telic",
     scriptSourceSha: "1".repeat(40),
     narrationSha256: "2".repeat(64),
     voiceoverSha256: hash,
     fps: 30,
+    durationSeconds: 300,
     totalDurationInFrames: 9000,
-    beats: [{id: "beat-1", startFrame: 0, endFrame: 9000}],
+    exactAlignment: true,
+    alignmentProvider: "whisperx",
+    alignmentQuality: {coreCharacterCoverage: 1, medianCharacterScore: 0.8},
+    voiceProvider: "gemini",
+    voiceName: "Schedar",
+    voiceSegments: [{id: "voice-1", beatIds: ["beat-1"], startFrame: 0, endFrame: 9000}],
+    beats: [{id: "beat-1", startFrame: 0, spokenEndFrame: 8970, endFrame: 9000, durationInFrames: 9000}],
   };
-  // Different key ordering is semantically identical.
   await fs.writeFile(sourceRuntimePath, `${JSON.stringify(runtime, null, 2)}\n`);
   await fs.writeFile(driveRuntimePath, `${JSON.stringify({jobId: runtime.jobId, ...runtime}, null, 4)}\n`);
   const verified = await verifyRestoredAudio({sourceRuntimePath, driveRuntimePath, audioPath});
   assert.equal(verified.format, "long");
   assert.equal(verified.voiceoverSha256, hash);
 
-  // Sequence previews do not need to download alignment.json or a duplicate
-  // audio-runtime.json. The committed runtime plus exact MP3 hash and job ID are
-  // sufficient to prove the restored voiceover is the frozen one.
-  const previewVerified = await verifyCommittedLongAudio({
-    sourceRuntimePath,
-    audioPath,
-    expectedJobId: runtime.jobId,
-  });
+  // Voice-prep may retain descriptive beat text that the later frozen runtime
+  // strips. This metadata does not alter the waveform or exact timing contract.
+  await fs.writeFile(driveRuntimePath, `${JSON.stringify({
+    ...runtime,
+    beats: runtime.beats.map((beat) => ({...beat, purpose: "descriptive label", narration: "spoken text retained by voice prep"})),
+  }, null, 2)}\n`);
+  assert.equal((await verifyRestoredAudio({sourceRuntimePath, driveRuntimePath, audioPath})).format, "long");
+
+  const previewVerified = await verifyCommittedLongAudio({sourceRuntimePath, audioPath, expectedJobId: runtime.jobId});
   assert.equal(previewVerified.format, "long");
   assert.equal(previewVerified.voiceoverSha256, hash);
   await assert.rejects(
@@ -48,14 +56,19 @@ try {
     /does not match the requested job ID/,
   );
 
-  await fs.writeFile(driveRuntimePath, `${JSON.stringify({...runtime, totalDurationInFrames: 9001}, null, 2)}\n`);
-  await assert.rejects(
-    verifyRestoredAudio({sourceRuntimePath, driveRuntimePath, audioPath}),
-    /drifted from the committed frozen source runtime/,
-  );
+  for (const drifted of [
+    {...runtime, totalDurationInFrames: 9001},
+    {...runtime, narrationSha256: "3".repeat(64)},
+    {...runtime, beats: [{...runtime.beats[0], endFrame: 8999}]},
+    {...runtime, voiceSegments: [{...runtime.voiceSegments[0], endFrame: 8999}]},
+  ]) {
+    await fs.writeFile(driveRuntimePath, `${JSON.stringify(drifted, null, 2)}\n`);
+    await assert.rejects(
+      verifyRestoredAudio({sourceRuntimePath, driveRuntimePath, audioPath}),
+      /audio contract drifted from the committed frozen source timing\/identity/,
+    );
+  }
 
-  // Drive metadata may never downgrade an authoritative committed long runtime
-  // into the legacy Short restore path by dropping or changing format.
   const noDriveFormat = {...runtime};
   delete noDriveFormat.format;
   await fs.writeFile(driveRuntimePath, `${JSON.stringify(noDriveFormat, null, 2)}\n`);
@@ -71,33 +84,19 @@ try {
 
   await fs.writeFile(driveRuntimePath, `${JSON.stringify(runtime, null, 2)}\n`);
   await fs.writeFile(audioPath, Buffer.from("different voice bytes"));
-  await assert.rejects(
-    verifyRestoredAudio({sourceRuntimePath, driveRuntimePath, audioPath}),
-    /does not match the committed runtime hash/,
-  );
-  await assert.rejects(
-    verifyCommittedLongAudio({sourceRuntimePath, audioPath, expectedJobId: runtime.jobId}),
-    /does not match the committed runtime hash/,
-  );
+  await assert.rejects(verifyRestoredAudio({sourceRuntimePath, driveRuntimePath, audioPath}), /does not match the committed runtime hash/);
+  await assert.rejects(verifyCommittedLongAudio({sourceRuntimePath, audioPath, expectedJobId: runtime.jobId}), /does not match the committed runtime hash/);
 
   await fs.writeFile(audioPath, bytes);
   const noHash = {...runtime};
   delete noHash.voiceoverSha256;
   await fs.writeFile(sourceRuntimePath, `${JSON.stringify(noHash, null, 2)}\n`);
   await fs.writeFile(driveRuntimePath, `${JSON.stringify(noHash, null, 2)}\n`);
-  await assert.rejects(
-    verifyRestoredAudio({sourceRuntimePath, driveRuntimePath, audioPath}),
-    /no valid voiceoverSha256 lock/,
-  );
+  await assert.rejects(verifyRestoredAudio({sourceRuntimePath, driveRuntimePath, audioPath}), /no valid voiceoverSha256 lock/);
 
-  // Conversely, a Drive long-form package must never be accepted when the
-  // checked-out source has no authoritative long runtime.
   await fs.rm(sourceRuntimePath, {force: true});
   await fs.writeFile(driveRuntimePath, `${JSON.stringify(runtime, null, 2)}\n`);
-  await assert.rejects(
-    verifyRestoredAudio({sourceRuntimePath, driveRuntimePath, audioPath}),
-    /committed source has no authoritative long-form runtime/,
-  );
+  await assert.rejects(verifyRestoredAudio({sourceRuntimePath, driveRuntimePath, audioPath}), /committed source has no authoritative long-form runtime/);
 
   const shortDrive = {schemaVersion: 2, format: "short", jobId: "short"};
   await fs.writeFile(driveRuntimePath, `${JSON.stringify(shortDrive)}\n`);
@@ -111,9 +110,6 @@ try {
   assert.match(restoreScript, /--committed-long/);
   assert.match(restoreScript, /copy_voice_artifact alignment\.json/);
   assert.match(restoreScript, /copy_voice_artifact audio-runtime\.json/);
-
-  // Voice restore addresses the durable job directly through the channel-owned
-  // Drive route. The public request cannot supply a private Drive locator.
   assert.match(restoreScript, /source "\$WORKER_ROOT\/scripts\/lib\/channel-storage\.sh"/);
   assert.match(restoreScript, /VOICE_ROOT_PATH="\$\(render_root_for_job_id "\$JOB_ID"\)\/\$JOB_ID"/);
   assert.match(restoreScript, /gdrive:\$VOICE_ROOT_PATH\/\$name/);
@@ -125,4 +121,4 @@ try {
   await fs.rm(temp, {recursive: true, force: true});
 }
 
-console.log("Frozen long-form full and lightweight preview audio restore tests passed.");
+console.log("Semantic frozen long-form audio identity and restore tests passed.");
