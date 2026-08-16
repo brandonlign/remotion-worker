@@ -19,9 +19,24 @@ COMPOSITION_ID="$(source_config_field compositionId)"
 THUMBNAIL_COMPOSITION_ID="$(source_config_field thumbnailCompositionId)"
 OUTPUT_NAME="$(source_config_field outputName)"
 INSTALL_COMMAND="$(source_config_field installCommand)"
-PREPARE_COMMAND="$(source_config_field prepareCommand)"
+CONFIGURED_PREPARE_COMMAND="$(source_config_field prepareCommand)"
 CHECK_COMMAND="$(source_config_field checkCommand)"
 CRF="$(source_config_field crf)"
+JOB_FORMAT="$(node - "$SOURCE_DIR/automation/current/job.json" <<'NODE'
+const fs = require('node:fs');
+const job = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
+process.stdout.write(String(job?.format || ''));
+NODE
+)"
+
+# Long-form preview and final rendering share one immutable private source
+# contract. The public worker, not an AI-authored source mutation, owns which
+# canonical preparation command corresponds to the requested render mode.
+PREPARE_COMMAND="$CONFIGURED_PREPARE_COMMAND"
+if [ "$JOB_FORMAT" = "long" ]; then
+  PREPARE_COMMAND="npm run long:prepare"
+fi
+
 FINAL_VIDEO="$OUTPUT_DIR/${OUTPUT_NAME}.mp4"
 THUMBNAIL_FILE="$OUTPUT_DIR/thumbnail.png"
 REMOTION_BIN="$SOURCE_DIR/node_modules/.bin/remotion"
@@ -31,7 +46,7 @@ FOCUSED_SOURCE_CHECK="npx eslint src && npx tsc --noEmit"
 # final rendering should not rerun unrelated controller/installer/publisher
 # regression suites. Keep code safety plus the production contract that matches
 # the format being rendered.
-if [ "$PREPARE_COMMAND" = "npm run long:prepare" ]; then
+if [ "$JOB_FORMAT" = "long" ]; then
   FINAL_CONTRACT_COMMAND="npm run long:contract:test"
 else
   FINAL_CONTRACT_COMMAND="npm run custom:contract:test"
@@ -58,7 +73,7 @@ node "$WORKER_ROOT/scripts/validate-private-render-contract.mjs" \
   render \
   "$COMPOSITION_ID" \
   "$THUMBNAIL_COMPOSITION_ID" \
-  "$PREPARE_COMMAND" \
+  "$CONFIGURED_PREPARE_COMMAND" \
   "$CHECK_COMMAND"
 
 cd "$SOURCE_DIR"
