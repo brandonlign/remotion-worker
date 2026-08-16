@@ -1,0 +1,98 @@
+name: Warm public alignment cache
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/warm-alignment-cache.yml
+      - .github/workflows/render.yml
+      - scripts/run-voice-prep.sh
+
+permissions:
+  contents: read
+
+concurrency:
+  group: warm-public-alignment-cache
+  cancel-in-progress: true
+
+jobs:
+  warm:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      # This cache contains only the public WhisperX runtime and public English
+      # alignment-model files. It must never include Telic/Coffee source, audio,
+      # assets, secrets, or unreleased render output. Because it is created on
+      # main, render PRs can restore it across otherwise isolated job branches.
+      - name: Restore public alignment runtime
+        id: alignment_cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/telic-whisperx-3.8.6
+            ~/.cache/torch
+            ~/.cache/huggingface
+          key: telic-whisperx-3.8.6-en-${{ runner.os }}-${{ runner.arch }}-py3
+
+      - name: Build and prewarm public alignment runtime
+        if: steps.alignment_cache.outputs.cache-hit != 'true'
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          WHISPERX_VERSION=3.8.6
+          ALIGNER_ROOT="$HOME/.cache/telic-whisperx-$WHISPERX_VERSION"
+          ALIGNER_VENV="$ALIGNER_ROOT/venv"
+          PYTHON_ABI="$(python3 -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")')"
+          ALIGNER_MARKER_VALUE="$WHISPERX_VERSION-py$PYTHON_ABI"
+          TORCH_HOME="$HOME/.cache/torch"
+          HF_HOME="$HOME/.cache/huggingface"
+          TELIC_ALIGN_MODEL_DIR="$TORCH_HOME/telic-align-models"
+          export TORCH_HOME HF_HOME TELIC_ALIGN_MODEL_DIR
+
+          rm -rf "$ALIGNER_ROOT"
+          mkdir -p "$ALIGNER_ROOT" "$TORCH_HOME" "$HF_HOME" "$TELIC_ALIGN_MODEL_DIR"
+          python3 -m venv "$ALIGNER_VENV"
+          "$ALIGNER_VENV/bin/python" -m pip install --disable-pip-version-check --no-input --upgrade pip
+          "$ALIGNER_VENV/bin/python" -m pip install --disable-pip-version-check --no-input "whisperx==$WHISPERX_VERSION"
+          printf '%s\n' "$ALIGNER_MARKER_VALUE" > "$ALIGNER_ROOT/version.txt"
+
+          # Production alignment only needs WhisperX's English forced-alignment
+          # model. Loading it is sufficient to materialize the reusable public
+          # model files; no audio, transcript, API key, or private repository is
+          # involved in this seed job.
+          "$ALIGNER_VENV/bin/python" - <<'PY'
+          import os
+          from importlib.metadata import version
+          import whisperx
+
+          if version("whisperx") != "3.8.6":
+              raise SystemExit("Pinned WhisperX version check failed.")
+          model, _ = whisperx.load_align_model(
+              language_code="en",
+              device="cpu",
+              model_dir=os.environ["TELIC_ALIGN_MODEL_DIR"],
+          )
+          del model
+          print("Public English WhisperX alignment runtime is warm.")
+          PY
+
+      - name: Verify cache contains no private media paths
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          for path in \
+            "$HOME/.cache/telic-whisperx-3.8.6" \
+            "$HOME/.cache/torch" \
+            "$HOME/.cache/huggingface"; do
+            [ -d "$path" ] || { echo "Expected public cache path is missing: $path" >&2; exit 1; }
+          done
+          if find "$HOME/.cache" -type f \( -iname 'voiceover.mp3' -o -iname 'final.mp4' -o -iname 'review.mp4' \) -print -quit | grep -q .; then
+            echo "Private/unreleased media appeared in the public alignment cache namespace." >&2
+            exit 1
+          fi
