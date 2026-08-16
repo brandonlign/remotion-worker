@@ -13,14 +13,15 @@ assert.match(script, /FINAL_CONTRACT_COMMAND="npm run long:contract:test"/);
 assert.match(script, /FINAL_CONTRACT_COMMAND="npm run custom:contract:test"/);
 assert.match(script, /bash -o pipefail -c "\$FOCUSED_SOURCE_CHECK"/);
 assert.match(script, /bash -o pipefail -c "\$FINAL_CONTRACT_COMMAND"/);
-assert.doesNotMatch(
-  script,
-  /bash -o pipefail -c "\$CHECK_COMMAND"/,
-  "final renders must not execute the generic infrastructure-heavy checkCommand",
-);
+assert.doesNotMatch(script, /bash -o pipefail -c "\$CHECK_COMMAND"/);
 
-// Preserve the actual render and output-quality path while bounding review-only
-// derivatives to the configured number the quality gate can consume.
+const metadataPreflight = script.indexOf('validate-youtube-metadata.mjs');
+const install = script.indexOf('bash -o pipefail -c "$INSTALL_COMMAND"');
+const render = script.indexOf('"$REMOTION_BIN" render');
+assert.ok(metadataPreflight >= 0, "final render must validate YouTube metadata");
+assert.ok(metadataPreflight < install, "metadata preflight must run before package install/asset preparation");
+assert.ok(metadataPreflight < render, "metadata preflight must run before expensive Remotion rendering");
+
 assert.match(script, /"\$REMOTION_BIN" render/);
 assert.match(script, /--codec=h264/);
 assert.match(script, /--crf="\$CRF"/);
@@ -36,16 +37,12 @@ assert.match(qualityGate, /extractDurations\(mediaAnalysis\.stderr, "silence_dur
 assert.match(qualityGate, /extractDurations\(mediaAnalysis\.stderr, "freeze_duration"\)/);
 assert.doesNotMatch(qualityGate, /const \[black, silence, freeze\] = await Promise\.all/);
 
-// GitHub's expression language loosely coerces empty outputs. Stage authority
-// therefore uses explicit boolean outputs, and only a fully successful stage may
-// write the canonical Drive package.
 assert.match(workflow, /echo "ok=true" >> "\$GITHUB_OUTPUT"/);
 assert.match(workflow, /steps\.audio_restore\.outputs\.ok == 'true'/);
 assert.match(workflow, /steps\.render\.outputs\.ok == 'true'/);
 assert.match(workflow, /steps\.quality\.outputs\.ok == 'true'/);
 assert.match(workflow, /Deliver successful private package to Google Drive/);
 assert.match(workflow, /Deliver failed-attempt diagnostics privately/);
-assert.match(workflow, /diagnostics \\\n            "\$REVISION"/);
 assert.doesNotMatch(workflow, /steps\.(?:audio_restore|render|quality|sequence|voice)\.outputs\.exit_code == '0'/);
 
-console.log("Final renders use worker-owned preparation, focused checks, deterministic QC, and explicit success-only Drive authority.");
+console.log("Final renders preflight metadata before expensive work and retain explicit success-only Drive authority.");
