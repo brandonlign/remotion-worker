@@ -74,7 +74,7 @@ const main = async () => {
       format: "long",
       jobId,
       title: "The Hidden Constraint Behind a Familiar System",
-      description: "A test long-form description.\n\n00:00 The result that does not fit\n01:30 The limit underneath it\n04:20 The decision that changes",
+      description: "A test long-form description.\n\n0:00 The result that does not fit\n1:30 The limit underneath it\n4:20 The decision that changes",
       chapters: [
         {startSeconds: 0, title: "The result that does not fit"},
         {startSeconds: 90, title: "The limit underneath it"},
@@ -92,8 +92,14 @@ const main = async () => {
     await fs.writeFile(longYoutube, `${JSON.stringify(validLong, null, 2)}\n`, "utf8");
     await run(process.execPath, ["scripts/create-controller-handoff.mjs", longOutput, longYoutube, jobId, sourceSha]);
     const longPublish = JSON.parse(await fs.readFile(path.join(longOutput, "publish.json"), "utf8"));
-    assert.match(longPublish.description, /00:00 The result that does not fit/);
-    assert.match(longPublish.description, /04:20 The decision that changes/);
+    assert.match(longPublish.description, /0:00 The result that does not fit/);
+    assert.match(longPublish.description, /4:20 The decision that changes/);
+
+    const paddedYoutube = path.join(longDir, "padded-youtube.json");
+    await fs.writeFile(paddedYoutube, `${JSON.stringify({...validLong,
+      description: "00:00 The result that does not fit\n01:30 The limit underneath it\n04:20 The decision that changes",
+    }, null, 2)}\n`, "utf8");
+    await run(process.execPath, ["scripts/create-controller-handoff.mjs", longOutput, paddedYoutube, jobId, sourceSha]);
 
     const invalidYoutube = path.join(longDir, "invalid-youtube.json");
     await fs.writeFile(invalidYoutube, `${JSON.stringify({...validLong, description: "No chapter lines here."}, null, 2)}\n`, "utf8");
@@ -101,7 +107,7 @@ const main = async () => {
 
     const tooLateYoutube = path.join(longDir, "too-late-youtube.json");
     await fs.writeFile(tooLateYoutube, `${JSON.stringify({...validLong,
-      description: "00:00 Start\n01:00 Middle\n06:55 Too late",
+      description: "0:00 Start\n1:00 Middle\n6:55 Too late",
       chapters: [{startSeconds: 0, title: "Start"}, {startSeconds: 60, title: "Middle"}, {startSeconds: 415, title: "Too late"}],
     }, null, 2)}\n`, "utf8");
     await run(process.execPath, ["scripts/create-controller-handoff.mjs", longOutput, tooLateYoutube, jobId, sourceSha], {expectFailure: true});

@@ -19,13 +19,23 @@ const text = (value, name, maximum) => {
   return normalized;
 };
 
-const chapterTimestamp = (startSeconds) => {
+const chapterTimestampVariants = (startSeconds) => {
   const total = Number(startSeconds);
   const hours = Math.floor(total / 3600);
   const minutes = Math.floor((total % 3600) / 60);
   const seconds = total % 60;
-  if (hours > 0) return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
-  return `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
+  const secondText = String(seconds).padStart(2, "0");
+  if (hours > 0) {
+    const minuteText = String(minutes).padStart(2, "0");
+    return [...new Set([
+      `${hours}:${minuteText}:${secondText}`,
+      `${String(hours).padStart(2, "0")}:${minuteText}:${secondText}`,
+    ])];
+  }
+  return [...new Set([
+    `${minutes}:${secondText}`,
+    `${String(minutes).padStart(2, "0")}:${secondText}`,
+  ])];
 };
 
 const validateLongChapters = async ({youtube, youtubePath, expectedJobId}) => {
@@ -49,11 +59,14 @@ const validateLongChapters = async ({youtube, youtubePath, expectedJobId}) => {
     if (index === 0 && startSeconds !== 0) fail("The first long-form chapter must start at 00:00.");
     if (startSeconds - previous < 10) fail("Long-form chapter starts must be ascending with at least 10 seconds between chapters.");
     const title = text(chapter?.title, `youtube.json chapters.${index + 1}.title`, 100);
-    const line = `${chapterTimestamp(startSeconds)} ${title}`;
-    const descriptionIndex = description.indexOf(line, lastDescriptionIndex + 1);
-    if (descriptionIndex < 0) fail(`Long-form description is missing chapter line: ${line}`);
+    const lines = chapterTimestampVariants(startSeconds).map((timestamp) => `${timestamp} ${title}`);
+    const matches = lines
+      .map((line) => ({line, index: description.indexOf(line, lastDescriptionIndex + 1)}))
+      .filter((match) => match.index >= 0)
+      .sort((a, b) => a.index - b.index);
+    if (matches.length === 0) fail(`Long-form description is missing chapter line: ${lines[0]}`);
     previous = startSeconds;
-    lastDescriptionIndex = descriptionIndex;
+    lastDescriptionIndex = matches[0].index;
   }
   if (previous > Math.floor(durationSeconds) - 10) fail("The final long-form chapter must leave at least 10 seconds before the video ends.");
 };
