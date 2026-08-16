@@ -52,6 +52,12 @@ assert.match(fullRender, /REVIEW_FRAME_LIMIT=/);
 assert.match(fullRender, /config\?\.longForm\?\.quality\?\.maximumFrames/);
 assert.match(fullRender, /config\?\.quality\?\.maximumFrames/);
 assert.match(fullRender, /create-review-assets\.sh" "\$FINAL_VIDEO" "\$OUTPUT_DIR" "\$REVIEW_FRAME_LIMIT"/);
+assert.doesNotMatch(fullRender, /node "\$WORKER_ROOT\/scripts\/create-review-moments\.mjs"/);
+assert.match(fullRender, /Exact semantic still extraction remains available/);
+
+const semanticMoments = fs.readFileSync(new URL("./create-review-moments.mjs", import.meta.url), "utf8");
+assert.match(semanticMoments, /resolveReviewMoments/);
+assert.match(semanticMoments, /Usage: create-review-moments\.mjs/);
 
 const qualityGate = fs.readFileSync(new URL("./deterministic-quality-gate.mjs", import.meta.url), "utf8");
 assert.match(qualityGate, /reviewFrameFps/);
@@ -86,4 +92,4 @@ assert.match(workflow, /source scripts\/ensure-public-ffmpeg\.sh/);
 assert.doesNotMatch(workflow, /Remotion dependency after npm ci/);
 assert.doesNotMatch(workflow, /packages\+=\(rclone\)/);
 
-console.log("Review assets use one full-render decode while preserving review audio, useful visual coverage, capped keyframe extraction, and accurate QC timestamps.");
+console.log("Review assets use one full-render decode, semantic stills are targeted-only, and default review coverage/audio/QC timestamps remain intact.");
