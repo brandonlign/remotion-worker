@@ -1,15 +1,21 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-if [ "$#" -ne 2 ]; then
-  echo "Usage: create-review-assets.sh <video.mp4> <output-dir>" >&2
+if [ "$#" -lt 2 ] || [ "$#" -gt 3 ]; then
+  echo "Usage: create-review-assets.sh <video.mp4> <output-dir> [maximum-review-frames]" >&2
   exit 64
 fi
 
 VIDEO="$1"
 OUTPUT_DIR="$2"
+MAXIMUM_REVIEW_FRAMES="${3:-0}"
 REMOTION_BIN="${TELIC_REMOTION_BIN:-}"
 REUSE_SOURCE_AS_REVIEW="${TELIC_REUSE_SOURCE_AS_REVIEW:-0}"
+
+if ! [[ "$MAXIMUM_REVIEW_FRAMES" =~ ^[0-9]+$ ]]; then
+  echo "maximum-review-frames must be a nonnegative integer." >&2
+  exit 64
+fi
 
 if [ ! -s "$VIDEO" ]; then
   echo "Rendered video is missing or empty." >&2
@@ -68,15 +74,36 @@ else
     "$OUTPUT_DIR/review.mp4"
 fi
 
-# Decode the video only once for both still-image review products. Use explicit
-# named filter options throughout this bundled-FFmpeg path; the runner's system
-# FFmpeg accepted shorthand forms, but Remotion's bundled build rejected them.
+# Sequence previews keep the established 0.5 fps cadence. Full renders pass
+# the quality policy's maximumFrames so we never decode/write hundreds of
+# review JPEGs only for the quality gate to discard most of them.
+REVIEW_FPS="0.5"
+if [ "$MAXIMUM_REVIEW_FRAMES" -gt 0 ]; then
+  REVIEW_FPS="$(node - "$OUTPUT_DIR/media-metadata.json" "$MAXIMUM_REVIEW_FRAMES" <<'NODE'
+const fs = require('node:fs');
+const [metadataPath, maximumRaw] = process.argv.slice(2);
+const metadata = JSON.parse(fs.readFileSync(metadataPath, 'utf8'));
+const maximumFrames = Number(maximumRaw);
+const streams = Array.isArray(metadata.streams) ? metadata.streams : [];
+const video = streams.find((stream) => stream.codec_type === 'video');
+const duration = Number(metadata.format?.duration ?? video?.duration);
+if (!Number.isFinite(duration) || duration <= 0) throw new Error('Review media duration is invalid.');
+if (!Number.isInteger(maximumFrames) || maximumFrames < 3) throw new Error('maximum-review-frames must be at least 3 when enabled.');
+const fps = Math.min(0.5, Math.max(3, maximumFrames - 1) / duration);
+process.stdout.write(fps.toFixed(8).replace(/0+$/, '').replace(/\.$/, ''));
+NODE
+)"
+fi
+
+# Decode once for the chronological review frames and compact contact sheet.
+# The configured cadence is capped for full renders but remains unchanged for
+# sequence previews, where the short window itself is the review target.
 run_media_tool ffmpeg \
   -hide_banner \
   -loglevel error \
   -y \
   -i "$VIDEO" \
-  -filter_complex "[0:v]fps=fps=0.5,split=outputs=2[keyframes][sheet];[keyframes]scale=w=360:h=-2[keyframes_out];[sheet]scale=w=210:h=-2,tile=layout=5x4:padding=8:margin=8[sheet_out]" \
+  -filter_complex "[0:v]fps=fps=${REVIEW_FPS},split=outputs=2[keyframes][sheet];[keyframes]scale=w=360:h=-2[keyframes_out];[sheet]scale=w=210:h=-2,tile=layout=5x4:padding=8:margin=8[sheet_out]" \
   -map "[keyframes_out]" \
   -q:v 3 \
   "$OUTPUT_DIR/keyframes/frame-%03d.jpg" \

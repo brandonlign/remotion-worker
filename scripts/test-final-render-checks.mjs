@@ -17,10 +17,21 @@ assert.doesNotMatch(
   "final renders must not execute the generic infrastructure-heavy checkCommand",
 );
 
-// Preserve the actual render and output-quality path.
+// Preserve the actual render and output-quality path while bounding review-only
+// derivatives to the configured number the quality gate can consume.
 assert.match(script, /"\$REMOTION_BIN" render/);
 assert.match(script, /--codec=h264/);
 assert.match(script, /--crf="\$CRF"/);
-assert.match(script, /create-review-assets\.sh/);
+assert.match(script, /REVIEW_FRAME_LIMIT=/);
+assert.match(script, /create-review-assets\.sh" "\$FINAL_VIDEO" "\$OUTPUT_DIR" "\$REVIEW_FRAME_LIMIT"/);
 
-console.log("Final renders use focused format-aware checks while preserving render quality settings.");
+const qualityGate = fs.readFileSync(new URL("./deterministic-quality-gate.mjs", import.meta.url), "utf8");
+assert.match(qualityGate, /const mediaAnalysis = await runCapture\("ffmpeg"/);
+assert.match(qualityGate, /blackdetect=.*freezedetect=/);
+assert.match(qualityGate, /silencedetect=/);
+assert.match(qualityGate, /extractDurations\(mediaAnalysis\.stderr, "black_duration"\)/);
+assert.match(qualityGate, /extractDurations\(mediaAnalysis\.stderr, "silence_duration"\)/);
+assert.match(qualityGate, /extractDurations\(mediaAnalysis\.stderr, "freeze_duration"\)/);
+assert.doesNotMatch(qualityGate, /const \[black, silence, freeze\] = await Promise\.all/);
+
+console.log("Final renders use focused checks, bounded review derivatives, and one-pass deterministic media analysis while preserving render quality settings.");
