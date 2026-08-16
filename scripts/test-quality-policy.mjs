@@ -46,8 +46,38 @@ assert.deepEqual(
     maximumFrames: 48,
   },
 );
+
+const coffeeProfile = {
+  short: {minimumDurationSeconds: 20, targetDurationSeconds: 28, maximumDurationSeconds: 35},
+  long: {minimumDurationSeconds: 540, targetDurationSeconds: 660, maximumDurationSeconds: 720},
+};
+assert.deepEqual(
+  resolveQualityPolicy({format: "long", channelId: "coffee"}, config, coffeeProfile),
+  {
+    format: "long",
+    quality: config.longForm.quality,
+    expectedWidth: 1920,
+    expectedHeight: 1080,
+    minimumDurationSeconds: 540,
+    maximumDurationSeconds: 720,
+    maximumFrames: 48,
+  },
+);
+assert.deepEqual(
+  resolveQualityPolicy({format: "short", channelId: "coffee"}, config, coffeeProfile),
+  {
+    format: "short",
+    quality: config.quality,
+    expectedWidth: 1080,
+    expectedHeight: 1920,
+    minimumDurationSeconds: 20,
+    maximumDurationSeconds: 35,
+    maximumFrames: 20,
+  },
+);
+
 assert.equal(resolveQualityPolicy({}, config).format, "short");
 assert.throws(() => resolveQualityPolicy({format: "vertical-long"}, config), /Unsupported Telic format/);
 assert.throws(() => resolveQualityPolicy({format: "long"}, {quality: config.quality}), /no long quality policy/);
 
-console.log("Worker format-aware quality policy tests passed.");
+console.log("Worker format-aware and channel-aware quality policy tests passed.");
