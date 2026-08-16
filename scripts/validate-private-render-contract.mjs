@@ -9,6 +9,11 @@ const fail = (message) => {
   throw error;
 };
 
+const LONG_PREPARE_COMMANDS = new Set([
+  "npm run long:prepare-window",
+  "npm run long:prepare",
+]);
+
 export const validatePrivateRenderContract = ({
   mode,
   jobFormat,
@@ -20,7 +25,7 @@ export const validatePrivateRenderContract = ({
   if (mode === "render-sequence") {
     if (jobFormat !== "long") fail("Sequence preview requires a private long-form source package.");
     if (compositionId !== "CustomLongForm") fail("Private long-form sequence source selected the wrong composition.");
-    if (prepareCommand !== "npm run long:prepare-window") fail("Private long-form sequence source selected the wrong prepare command.");
+    if (!LONG_PREPARE_COMMANDS.has(prepareCommand)) fail("Private long-form source selected an unsupported prepare command.");
     if (checkCommand !== "npm run lint") fail("Private long-form sequence source selected the wrong check command.");
     return true;
   }
@@ -28,7 +33,7 @@ export const validatePrivateRenderContract = ({
   if (mode === "render" && jobFormat === "long") {
     if (compositionId !== "CustomLongForm") fail("Private long-form final source selected the wrong composition.");
     if (thumbnailCompositionId !== "LongFormThumbnail") fail("Private long-form final source selected the wrong thumbnail composition.");
-    if (prepareCommand !== "npm run long:prepare") fail("Private long-form final source selected the wrong prepare command.");
+    if (!LONG_PREPARE_COMMANDS.has(prepareCommand)) fail("Private long-form source selected an unsupported prepare command.");
     if (checkCommand !== "npm run lint") fail("Private long-form final source selected the wrong check command.");
   }
   return true;
