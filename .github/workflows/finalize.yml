@@ -1,0 +1,290 @@
+name: Finalize existing private render
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    paths:
+      - jobs/finalize-request.json
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: remotion-finalize-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  finalize:
+    if: >-
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      startsWith(github.head_ref, 'render/')
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Check out worker
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Validate finalize request
+        id: request
+        run: node scripts/validate-finalize-job.mjs jobs/finalize-request.json
+
+      - name: Restore successful finalize identity
+        id: finalize_dedupe
+        uses: actions/cache/restore@v4
+        with:
+          path: ${{ runner.temp }}/telic-finalize-idempotency
+          key: telic-finalize-success-${{ steps.request.outputs.request_key }}
+
+      - name: Report duplicate finalize no-op
+        if: steps.finalize_dedupe.outputs.cache-hit == 'true'
+        run: echo "This exact successful metadata-only finalize identity already exists; duplicate dispatch is a no-op."
+
+      - name: Check out current private source
+        if: steps.finalize_dedupe.outputs.cache-hit != 'true'
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ secrets.SOURCE_REPOSITORY }}
+          ref: ${{ steps.request.outputs.source_sha }}
+          token: ${{ secrets.SOURCE_REPO_TOKEN }}
+          path: private-source
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: Check out rendered private source
+        if: steps.finalize_dedupe.outputs.cache-hit != 'true'
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ secrets.SOURCE_REPOSITORY }}
+          ref: ${{ steps.request.outputs.render_source_sha }}
+          token: ${{ secrets.SOURCE_REPO_TOKEN }}
+          path: render-source
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: Cache public rclone binary
+        if: steps.finalize_dedupe.outputs.cache-hit != 'true'
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/telic-tools/rclone-v1.75.0
+          key: telic-rclone-v1.75.0-${{ runner.os }}-${{ runner.arch }}
+
+      - name: Ensure finalize tools
+        if: steps.finalize_dedupe.outputs.cache-hit != 'true'
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          source scripts/ensure-public-rclone.sh
+          if ! command -v ffmpeg >/dev/null 2>&1 || ! command -v ffprobe >/dev/null 2>&1; then
+            sudo apt-get update -qq
+            sudo apt-get install -y -qq ffmpeg
+          fi
+
+      - name: Prove source change is metadata-only
+        id: reuse_guard
+        if: steps.finalize_dedupe.outputs.cache-hit != 'true'
+        shell: bash
+        run: |
+          set +e
+          node scripts/verify-metadata-only-reuse.mjs \
+            private-source \
+            render-source \
+            "${{ steps.request.outputs.source_sha }}" \
+            "${{ steps.request.outputs.render_source_sha }}" \
+            >"$RUNNER_TEMP/private-reuse-guard.log" 2>&1
+          code=$?
+          if [ "$code" -eq 0 ]; then
+            echo "ok=true" >> "$GITHUB_OUTPUT"
+            echo "Private source comparison permits render reuse."
+          else
+            echo "ok=false" >> "$GITHUB_OUTPUT"
+            echo "Render reuse was refused because source changes were not metadata-only."
+            tail -n 8 "$RUNNER_TEMP/private-reuse-guard.log"
+          fi
+          exit 0
+
+      - name: Validate current YouTube metadata
+        id: metadata
+        if: >-
+          steps.finalize_dedupe.outputs.cache-hit != 'true' &&
+          steps.reuse_guard.outputs.ok == 'true'
+        shell: bash
+        run: |
+          set +e
+          node scripts/validate-youtube-metadata.mjs \
+            private-source/automation/current/youtube.json \
+            "${{ steps.request.outputs.job_id }}" \
+            >"$RUNNER_TEMP/private-metadata.log" 2>&1
+          code=$?
+          if [ "$code" -eq 0 ]; then
+            echo "ok=true" >> "$GITHUB_OUTPUT"
+            echo "Current YouTube metadata passed preflight."
+          else
+            echo "ok=false" >> "$GITHUB_OUTPUT"
+            echo "Current YouTube metadata failed preflight."
+            tail -n 8 "$RUNNER_TEMP/private-metadata.log"
+          fi
+          exit 0
+
+      - name: Restore prior rendered package
+        id: restore
+        if: >-
+          steps.finalize_dedupe.outputs.cache-hit != 'true' &&
+          steps.reuse_guard.outputs.ok == 'true' &&
+          steps.metadata.outputs.ok == 'true'
+        shell: bash
+        env:
+          RCLONE_CONFIG_B64: ${{ secrets.RCLONE_CONFIG_B64 }}
+        run: |
+          set +e
+          mkdir -p "$RUNNER_TEMP/render-result"
+          bash scripts/download-drive-render.sh \
+            "$RUNNER_TEMP/render-result" \
+            "${{ steps.request.outputs.job_id }}" \
+            "${{ steps.request.outputs.reuse_revision }}" \
+            "${{ steps.request.outputs.render_source_sha }}" \
+            >"$RUNNER_TEMP/private-render-restore.log" 2>&1
+          code=$?
+          cp "$RUNNER_TEMP/private-render-restore.log" "$RUNNER_TEMP/render-result/private-render-restore.log" 2>/dev/null || true
+          if [ "$code" -eq 0 ]; then
+            echo "ok=true" >> "$GITHUB_OUTPUT"
+            echo "Restored the prior private rendered package from Drive."
+          else
+            echo "ok=false" >> "$GITHUB_OUTPUT"
+            echo "Could not restore the prior rendered package."
+            tail -n 8 "$RUNNER_TEMP/private-render-restore.log"
+          fi
+          exit 0
+
+      - name: Finalize existing render with current metadata
+        id: finalize
+        if: >-
+          steps.finalize_dedupe.outputs.cache-hit != 'true' &&
+          steps.restore.outputs.ok == 'true'
+        shell: bash
+        run: |
+          set +e
+          bash scripts/run-finalize.sh \
+            jobs/finalize-request.json \
+            private-source \
+            "$RUNNER_TEMP/render-result" \
+            >"$RUNNER_TEMP/private-finalize.log" 2>&1
+          code=$?
+          cp "$RUNNER_TEMP/private-finalize.log" "$RUNNER_TEMP/render-result/private-finalize.log"
+          if [ "$code" -eq 0 ]; then
+            echo "ok=true" >> "$GITHUB_OUTPUT"
+            echo "Existing rendered media was repackaged with current metadata; no Remotion render ran."
+          else
+            echo "ok=false" >> "$GITHUB_OUTPUT"
+            echo "Metadata-only finalization failed."
+            tail -n 8 "$RUNNER_TEMP/private-finalize.log"
+          fi
+          exit 0
+
+      - name: Run deterministic media quality gate
+        id: quality
+        if: >-
+          steps.finalize_dedupe.outputs.cache-hit != 'true' &&
+          steps.finalize.outputs.ok == 'true'
+        shell: bash
+        run: |
+          set +e
+          node scripts/deterministic-quality-gate.mjs \
+            "$RUNNER_TEMP/render-result" \
+            private-source/automation/current/job.json \
+            private-source/automation/config.json \
+            >"$RUNNER_TEMP/private-quality.log" 2>&1
+          code=$?
+          cp "$RUNNER_TEMP/private-quality.log" "$RUNNER_TEMP/render-result/private-quality.log"
+          if [ "$code" -eq 0 ]; then
+            echo "ok=true" >> "$GITHUB_OUTPUT"
+            echo "Deterministic media QC passed on the reused render."
+          else
+            echo "ok=false" >> "$GITHUB_OUTPUT"
+            echo "Deterministic media QC rejected the reused render."
+            tail -n 8 "$RUNNER_TEMP/private-quality.log"
+          fi
+          exit 0
+
+      - name: Refresh private checksums
+        if: >-
+          steps.finalize_dedupe.outputs.cache-hit != 'true' &&
+          steps.finalize.outputs.ok == 'true'
+        shell: bash
+        run: |
+          find "$RUNNER_TEMP/render-result" -type f ! -name checksums.txt -print0 \
+            | sort -z \
+            | xargs -0 -r sha256sum \
+            > "$RUNNER_TEMP/render-result/checksums.txt"
+
+      - name: Deliver finalized private package to Google Drive
+        id: drive
+        if: >-
+          steps.finalize_dedupe.outputs.cache-hit != 'true' &&
+          steps.finalize.outputs.ok == 'true' &&
+          steps.quality.outputs.ok == 'true'
+        shell: bash
+        env:
+          RCLONE_CONFIG_B64: ${{ secrets.RCLONE_CONFIG_B64 }}
+          JOB_ID: ${{ steps.request.outputs.job_id }}
+        run: |
+          if bash scripts/upload-drive.sh \
+            "$RUNNER_TEMP/render-result" \
+            "$JOB_ID" \
+            success \
+            >"$RUNNER_TEMP/private-upload.log" 2>&1; then
+            echo "Finalized private package promoted to the canonical Drive job folder."
+          else
+            echo "Canonical Drive delivery failed."
+            tail -n 8 "$RUNNER_TEMP/private-upload.log" \
+              | sed -E 's/(token|client_secret|refresh_token|access_token)[[:space:]]*=[[:space:]]*[^[:space:]]+/\1=[REDACTED]/Ig'
+            exit 1
+          fi
+
+      - name: Create successful finalize sentinel
+        if: >-
+          steps.finalize_dedupe.outputs.cache-hit != 'true' &&
+          steps.finalize.outputs.ok == 'true' &&
+          steps.quality.outputs.ok == 'true' &&
+          steps.drive.outcome == 'success'
+        shell: bash
+        run: |
+          mkdir -p "$RUNNER_TEMP/telic-finalize-idempotency"
+          printf '%s\n' "${{ steps.request.outputs.request_key }}" > "$RUNNER_TEMP/telic-finalize-idempotency/success.txt"
+
+      - name: Save successful finalize identity
+        if: >-
+          steps.finalize_dedupe.outputs.cache-hit != 'true' &&
+          steps.finalize.outputs.ok == 'true' &&
+          steps.quality.outputs.ok == 'true' &&
+          steps.drive.outcome == 'success'
+        uses: actions/cache/save@v4
+        with:
+          path: ${{ runner.temp }}/telic-finalize-idempotency
+          key: telic-finalize-success-${{ steps.request.outputs.request_key }}
+
+      - name: Remove private source checkouts
+        if: always()
+        run: rm -rf private-source render-source
+
+      - name: Fail workflow when metadata-only finalization failed
+        if: >-
+          always() &&
+          steps.finalize_dedupe.outputs.cache-hit != 'true' &&
+          (
+            steps.reuse_guard.outputs.ok != 'true' ||
+            steps.metadata.outputs.ok != 'true' ||
+            steps.restore.outputs.ok != 'true' ||
+            steps.finalize.outputs.ok != 'true' ||
+            steps.quality.outputs.ok != 'true' ||
+            steps.drive.outcome != 'success'
+          )
+        run: |
+          echo "Metadata-only finalization failed. The prior diagnostic render remains isolated and no new video render was started."
+          exit 1
