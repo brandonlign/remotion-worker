@@ -13,13 +13,37 @@ WORKER_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 source "$WORKER_ROOT/scripts/lib/stage-common.sh"
 trap stage_cleanup EXIT
 
+prepare_private_source_stage "Voice preparation"
+
+# Recovery should never regenerate an identical long-form voice package if the
+# exact source/narration/audio identity is already durable in private Drive.
+# This optional fast path is private-only and fail-open: any absence, stale
+# identity, or Drive problem simply falls through to normal generation.
+if [ -n "${RCLONE_CONFIG_B64:-}" ]; then
+  set +e
+  bash "$WORKER_ROOT/scripts/restore-existing-long-voice-prep.sh" \
+    "$SOURCE_DIR" "$JOB_ID" "$SOURCE_SHA" "$OUTPUT_DIR"
+  reuse_code=$?
+  set -e
+  if [ "$reuse_code" -eq 0 ]; then
+    write_checksums "$OUTPUT_DIR"
+    exit 0
+  fi
+  if [ "$reuse_code" -ne 10 ]; then
+    echo "Exact private Drive voice reuse was unavailable; continuing with normal generation." >&2
+  fi
+fi
+
 if [ -z "${GEMINI_API_KEYS_JSON:-}" ] && [ -z "${GEMINI_API_KEY:-}" ]; then
   stage_fail "GEMINI_API_KEYS_JSON or GEMINI_API_KEY is required for private Gemini voice preparation."
 fi
 
-prepare_private_source_stage "Voice preparation"
+cd "$SOURCE_DIR"
 
-INSTALL_COMMAND="$(source_config_field installCommand)"
+# These are lightweight source-tool unit tests and require no Remotion/npm
+# dependency installation. Run them before the expensive alignment runtime so
+# a broken voice tool fails in seconds rather than after environment setup.
+npm run voiceover:test
 
 WHISPERX_VERSION="3.8.6"
 PYTHON_ABI="$(python3 -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")')"
@@ -48,9 +72,6 @@ export HF_HOME="${HF_HOME:-$HOME/.cache/huggingface}"
 export TELIC_ALIGN_MODEL_DIR="${TELIC_ALIGN_MODEL_DIR:-$TORCH_HOME/telic-align-models}"
 mkdir -p "$TORCH_HOME" "$HF_HOME" "$TELIC_ALIGN_MODEL_DIR"
 
-install_private_dependencies "$INSTALL_COMMAND"
-cd "$SOURCE_DIR"
-npm run voiceover:test
 npm run audio:prepare
 
 AUDIO_FILE="$SOURCE_DIR/public/automation/voiceover.mp3"
