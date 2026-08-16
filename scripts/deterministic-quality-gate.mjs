@@ -7,6 +7,13 @@ import {spawn} from "node:child_process";
 import {resolveQualityPolicy} from "./quality-policy.mjs";
 
 const readJson = async (filePath) => JSON.parse(await fs.readFile(filePath, "utf8"));
+const readOptionalJson = async (filePath) => {
+  try { return await readJson(filePath); }
+  catch (error) {
+    if (error?.code === "ENOENT") return null;
+    throw error;
+  }
+};
 
 const runCapture = (command, args) =>
   new Promise((resolve, reject) => {
@@ -67,14 +74,20 @@ const main = async () => {
   if (!resultArg || !jobArg || !configArg) throw new Error("Usage: deterministic-quality-gate.mjs <render-result-dir> <job.json> <config.json>");
 
   const resultDir = path.resolve(resultArg);
+  const jobPath = path.resolve(jobArg);
+  const configPath = path.resolve(configArg);
   const outputPath = path.join(resultDir, "quality-gate.json");
   const [status, job, config, metadata] = await Promise.all([
     readJson(path.join(resultDir, "status.json")),
-    readJson(path.resolve(jobArg)),
-    readJson(path.resolve(configArg)),
+    readJson(jobPath),
+    readJson(configPath),
     readJson(path.join(resultDir, "media-metadata.json")),
   ]);
-  const {format, quality, expectedWidth, expectedHeight, minimumDurationSeconds, maximumDurationSeconds, maximumFrames} = resolveQualityPolicy(job, config);
+  const sourceRoot = path.dirname(path.dirname(configPath));
+  const sourceProfile = job?.channelId
+    ? await readOptionalJson(path.join(sourceRoot, "tools", "telic-vnext", "channels", String(job.channelId), "source-profile.json"))
+    : null;
+  const {format, quality, expectedWidth, expectedHeight, minimumDurationSeconds, maximumDurationSeconds, maximumFrames} = resolveQualityPolicy(job, config, sourceProfile);
 
   const videoPath = path.join(resultDir, `${status.outputName}.mp4`);
   const stat = await fs.stat(videoPath);
@@ -91,9 +104,6 @@ const main = async () => {
   if (Number(videoStreams[0]?.width) !== expectedWidth || Number(videoStreams[0]?.height) !== expectedHeight) issues.push(`The final ${format} frame size is not ${expectedWidth} by ${expectedHeight}.`);
   if (!Number.isFinite(durationSeconds) || durationSeconds < minimumDurationSeconds || durationSeconds > maximumDurationSeconds) issues.push(`The final duration is outside the autonomous ${format} limits.`);
 
-  // Analyze black segments, freezes, and silence in one decode pass. These
-  // filters are observational, so combining them preserves the same signals
-  // while avoiding multiple full-video decodes of the authoritative render.
   const mediaAnalysis = await runCapture("ffmpeg", [
     "-hide_banner", "-loglevel", "info", "-i", videoPath,
     "-vf", `blackdetect=d=${quality.maximumBlackSeconds}:pic_th=0.98:pix_th=0.10,freezedetect=n=-50dB:d=${quality.maximumFreezeSeconds}`,
@@ -129,6 +139,11 @@ const main = async () => {
     reviewMode: "chatgpt-web-required",
     visualReviewRequired: true,
     completedAt: new Date().toISOString(),
+    durationPolicy: {
+      minimumDurationSeconds,
+      maximumDurationSeconds,
+      source: sourceProfile ? "channel-source-profile" : "legacy-config",
+    },
     media: {
       sizeBytes: stat.size,
       durationSeconds,
