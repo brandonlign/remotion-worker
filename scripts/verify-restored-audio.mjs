@@ -19,6 +19,45 @@ const stable = (value) => {
 const fingerprint = (value) => JSON.stringify(stable(value));
 const sha256File = async (filePath) => crypto.createHash("sha256").update(await fs.readFile(filePath)).digest("hex");
 
+const beatTiming = (beat) => ({
+  id: beat?.id,
+  startFrame: beat?.startFrame,
+  spokenEndFrame: beat?.spokenEndFrame ?? null,
+  endFrame: beat?.endFrame,
+  durationInFrames: beat?.durationInFrames ?? null,
+});
+
+const voiceSegmentTiming = (segment) => ({
+  id: segment?.id,
+  beatIds: Array.isArray(segment?.beatIds) ? segment.beatIds : [],
+  startFrame: segment?.startFrame,
+  endFrame: segment?.endFrame,
+});
+
+// This is the durable binary/timing identity of a long-form voice package.
+// Descriptive fields such as beat purpose/narration may be retained in the
+// Drive voice-prep artifact and stripped from the later committed runtime; they
+// do not change the waveform or exact alignment and must not invalidate it.
+const longAudioContract = (runtime) => ({
+  schemaVersion: runtime?.schemaVersion,
+  format: runtime?.format,
+  jobId: runtime?.jobId,
+  channelId: runtime?.channelId ?? null,
+  scriptSourceSha: runtime?.scriptSourceSha ?? null,
+  narrationSha256: runtime?.narrationSha256 ?? null,
+  voiceoverSha256: runtime?.voiceoverSha256 ?? null,
+  fps: runtime?.fps,
+  durationSeconds: runtime?.durationSeconds,
+  totalDurationInFrames: runtime?.totalDurationInFrames,
+  exactAlignment: runtime?.exactAlignment ?? null,
+  alignmentProvider: runtime?.alignmentProvider ?? null,
+  alignmentQuality: runtime?.alignmentQuality ?? null,
+  voiceProvider: runtime?.voiceProvider ?? null,
+  voiceName: runtime?.voiceName ?? null,
+  voiceSegments: Array.isArray(runtime?.voiceSegments) ? runtime.voiceSegments.map(voiceSegmentTiming) : [],
+  beats: Array.isArray(runtime?.beats) ? runtime.beats.map(beatTiming) : [],
+});
+
 const verifyLongAudio = async ({runtime, audioPath, expectedJobId = null}) => {
   if (runtime?.format !== "long") throw new Error("Committed source runtime is not long form.");
   if (expectedJobId && runtime.jobId !== expectedJobId) {
@@ -42,16 +81,13 @@ export const verifyRestoredAudio = async ({sourceRuntimePath, driveRuntimePath, 
     readJson(driveRuntimePath),
   ]);
 
-  // The checked-out private source is authoritative for format. A committed
-  // long-form runtime may never be downgraded into the legacy Short restore path
-  // merely because the Drive copy is malformed or has lost its format field.
   if (sourceRuntime?.format === "long") {
     if (driveRuntime?.format !== "long") {
       throw new Error("Drive audio runtime attempted to downgrade a committed long-form runtime.");
     }
     if (sourceRuntime.jobId !== driveRuntime.jobId) throw new Error("Committed and Drive long-form audio runtimes have different job IDs.");
-    if (fingerprint(sourceRuntime) !== fingerprint(driveRuntime)) {
-      throw new Error("Drive long-form audio-runtime.json drifted from the committed frozen source runtime.");
+    if (fingerprint(longAudioContract(sourceRuntime)) !== fingerprint(longAudioContract(driveRuntime))) {
+      throw new Error("Drive long-form audio contract drifted from the committed frozen source timing/identity.");
     }
     return verifyLongAudio({runtime: sourceRuntime, audioPath});
   }
