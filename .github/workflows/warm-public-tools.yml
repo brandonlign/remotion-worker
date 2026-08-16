@@ -1,0 +1,63 @@
+name: Warm public render tools
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/warm-public-tools.yml
+      - scripts/ensure-public-ffmpeg.sh
+      - scripts/ensure-public-rclone.sh
+
+permissions:
+  contents: read
+
+concurrency:
+  group: warm-public-render-tools
+  cancel-in-progress: true
+
+jobs:
+  warm:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Check out worker
+        uses: actions/checkout@v4
+
+      - name: Restore public rclone
+        id: rclone_cache
+        uses: actions/cache/restore@v4
+        with:
+          path: ~/.cache/telic-tools/rclone-v1.75.0
+          key: telic-rclone-v1.75.0-${{ runner.os }}-${{ runner.arch }}
+
+      - name: Restore public FFmpeg
+        id: ffmpeg_cache
+        uses: actions/cache/restore@v4
+        with:
+          path: ~/.cache/telic-tools/ffmpeg-n8.1-btbn-20260813
+          key: telic-ffmpeg-n8.1-btbn-20260813-${{ runner.os }}-${{ runner.arch }}-py3
+
+      - name: Materialize missing pinned tools
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          source scripts/ensure-public-rclone.sh
+          source scripts/ensure-public-ffmpeg.sh
+          rclone version | head -n 1
+          ffmpeg -hide_banner -version | head -n 1
+          ffprobe -hide_banner -version | head -n 1
+
+      - name: Save public rclone
+        if: steps.rclone_cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ~/.cache/telic-tools/rclone-v1.75.0
+          key: telic-rclone-v1.75.0-${{ runner.os }}-${{ runner.arch }}
+
+      - name: Save public FFmpeg
+        if: steps.ffmpeg_cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ~/.cache/telic-tools/ffmpeg-n8.1-btbn-20260813
+          key: telic-ffmpeg-n8.1-btbn-20260813-${{ runner.os }}-${{ runner.arch }}-py3
