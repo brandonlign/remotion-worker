@@ -64,19 +64,15 @@ assert.match(workflow, /Save verified installed Node dependencies/);
 assert.match(workflow, /steps\.node_dependencies_cache\.outputs\.cache-hit != 'true'/);
 assert.match(workflow, /uses: actions\/cache\/save@v4/);
 
-assert.match(workflow, /Read private job format/);
-assert.match(workflow, /Restore locked long-form voiceover/);
-assert.match(workflow, /id: voiceover_cache/);
-assert.match(workflow, /telic-long-voice-v1-/);
-assert.match(workflow, /Save locked long-form voiceover/);
-assert.match(workflow, /steps\.source_job\.outputs\.format == 'long'/);
-assert.match(workflow, /steps\.voiceover_cache\.outputs\.cache-hit != 'true'/);
+// Public worker caches may contain public tools/dependencies and opaque success
+// sentinels, never unreleased Telic/Coffee media.
+assert.doesNotMatch(workflow, /voiceover_cache/);
+assert.doesNotMatch(workflow, /telic-long-voice-v1/);
+assert.doesNotMatch(workflow, /actions\/cache\/(?:restore|save)@v4[\s\S]{0,300}voiceover\.mp3/);
 
 const dependencySave = workflow.indexOf('- name: Save verified installed Node dependencies');
-const voiceSave = workflow.indexOf('- name: Save locked long-form voiceover');
 const cleanup = workflow.indexOf('- name: Remove private source checkout');
 assert.ok(dependencySave >= 0 && dependencySave < cleanup, "node_modules must be saved before private-source cleanup");
-assert.ok(voiceSave >= 0 && voiceSave < cleanup, "voiceover must be saved before private-source cleanup");
 
 assert.match(workflow, /echo "ok=true" >> "\$GITHUB_OUTPUT"/);
 assert.match(workflow, /steps\.audio_restore\.outputs\.ok == 'true'/);
@@ -86,4 +82,4 @@ assert.match(workflow, /Deliver successful private package to Google Drive/);
 assert.match(workflow, /Deliver failed-attempt diagnostics privately/);
 assert.doesNotMatch(workflow, /steps\.(?:audio_restore|render|quality|sequence|voice)\.outputs\.exit_code == '0'/);
 
-console.log("Final renders reuse only verified caches, persist them before cleanup, defer duplicate Actions checksum work, preflight metadata before expensive work, and retain explicit success-only Drive authority.");
+console.log("Final renders reuse only public dependency/tool caches, keep private media out of public caches, defer duplicate Actions checksum work, preflight metadata before expensive work, and retain explicit success-only Drive authority.");
