@@ -24,6 +24,7 @@ jobs:
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          HEAD_REF: ${{ github.head_ref }}
         run: |
           set -Eeuo pipefail
           mapfile -t changed < <(git diff --name-only "$BASE_SHA" "$HEAD_SHA")
@@ -31,7 +32,7 @@ jobs:
           printf '  %s\n' "${changed[@]}"
 
           if [ "${#changed[@]}" -lt 1 ] || [ "${#changed[@]}" -gt 2 ]; then
-            echo "render/* PRs may change only the isolated worker request files." >&2
+            echo "render/* PRs may change only one or both isolated worker request files." >&2
             exit 1
           fi
 
@@ -48,21 +49,37 @@ jobs:
             esac
           done
 
-          if [ "$has_finalize_request" = true ]; then
-            if [ "$has_render_request" != true ]; then
-              echo "A finalize request must remain paired with the same job's canonical request.json." >&2
-              exit 1
-            fi
-            node - jobs/request.json jobs/finalize-request.json <<'NODE'
+          if [ "$has_render_request" != true ] && [ "$has_finalize_request" != true ]; then
+            echo "render/* PRs must contain an isolated render or finalize request." >&2
+            exit 1
+          fi
+
+          HAS_RENDER_REQUEST="$has_render_request" HAS_FINALIZE_REQUEST="$has_finalize_request" node - <<'NODE'
           const fs = require("node:fs");
-          const [renderPath, finalizePath] = process.argv.slice(2);
-          const render = JSON.parse(fs.readFileSync(renderPath, "utf8"));
-          const finalize = JSON.parse(fs.readFileSync(finalizePath, "utf8"));
-          if (!render.jobId || render.jobId !== finalize.jobId) {
-            throw new Error("request.json and finalize-request.json must belong to the exact same job.");
+          const branch = process.env.HEAD_REF || "";
+          const prefix = "render/";
+          if (!branch.startsWith(prefix) || branch.length <= prefix.length) {
+            throw new Error("Worker request branch must be render/<jobId>.");
+          }
+          const branchJobId = branch.slice(prefix.length);
+          let render = null;
+          let finalize = null;
+          if (process.env.HAS_RENDER_REQUEST === "true") {
+            render = JSON.parse(fs.readFileSync("jobs/request.json", "utf8"));
+            if (!render.jobId || render.jobId !== branchJobId) {
+              throw new Error("jobs/request.json jobId must exactly match the render/<jobId> branch.");
+            }
+          }
+          if (process.env.HAS_FINALIZE_REQUEST === "true") {
+            finalize = JSON.parse(fs.readFileSync("jobs/finalize-request.json", "utf8"));
+            if (!finalize.jobId || finalize.jobId !== branchJobId) {
+              throw new Error("jobs/finalize-request.json jobId must exactly match the render/<jobId> branch.");
+            }
+          }
+          if (render && finalize && render.jobId !== finalize.jobId) {
+            throw new Error("Render and finalize requests must belong to the exact same job.");
           }
           NODE
-          fi
 
       - name: Set up Node
         uses: actions/setup-node@v4
