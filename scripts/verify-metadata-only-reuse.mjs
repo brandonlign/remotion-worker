@@ -15,7 +15,10 @@ if (!/^[0-9a-f]{40}$/.test(currentSha) || !/^[0-9a-f]{40}$/.test(renderSha)) {
 const ALLOWED_CHANGED_PATHS = new Set(["automation/current/youtube.json"]);
 const IGNORED_DIRS = new Set([".git", "node_modules"]);
 
-const digest = async (file) => crypto.createHash("sha256").update(await fs.readFile(file)).digest("hex");
+const hashBytes = (bytes) => crypto.createHash("sha256").update(bytes).digest("hex");
+const digestFile = async (file) => hashBytes(await fs.readFile(file));
+const digestSymlink = async (file) => hashBytes(`symlink:${await fs.readlink(file)}`);
+
 const snapshot = async (root) => {
   const result = new Map();
   const visit = async (dir, relative = "") => {
@@ -24,7 +27,8 @@ const snapshot = async (root) => {
       const rel = relative ? `${relative}/${entry.name}` : entry.name;
       const full = path.join(dir, entry.name);
       if (entry.isDirectory()) await visit(full, rel);
-      else if (entry.isFile()) result.set(rel, await digest(full));
+      else if (entry.isFile()) result.set(rel, `file:${await digestFile(full)}`);
+      else if (entry.isSymbolicLink()) result.set(rel, `symlink:${await digestSymlink(full)}`);
       else throw new Error(`Unsupported source entry while proving metadata-only reuse: ${rel}`);
     }
   };
