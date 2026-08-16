@@ -6,6 +6,7 @@ on:
     branches: [main]
     paths:
       - .github/workflows/sync-coffee-audio.yml
+      - scripts/sync-coffee-audio-library.sh
 
 permissions:
   contents: read
