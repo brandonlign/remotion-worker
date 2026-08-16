@@ -247,6 +247,47 @@ jobs:
             exit 1
           fi
 
+      - name: Deliver failed-finalize diagnostics privately
+        if: >-
+          always() &&
+          steps.finalize_dedupe.outputs.cache-hit != 'true' &&
+          steps.drive.outcome != 'success'
+        shell: bash
+        env:
+          RCLONE_CONFIG_B64: ${{ secrets.RCLONE_CONFIG_B64 }}
+          JOB_ID: ${{ steps.request.outputs.job_id }}
+          REVISION: ${{ steps.request.outputs.revision }}
+        run: |
+          set -Eeuo pipefail
+          diagnostic_dir="$RUNNER_TEMP/finalize-diagnostics"
+          rm -rf "$diagnostic_dir"
+          mkdir -p "$diagnostic_dir"
+          for file in \
+            quality-gate.json private-quality.log private-finalize.log \
+            private-render-restore.log status.json media-metadata.json checksums.txt; do
+            if [ -f "$RUNNER_TEMP/render-result/$file" ]; then
+              cp "$RUNNER_TEMP/render-result/$file" "$diagnostic_dir/$file"
+            fi
+          done
+          for file in private-reuse-guard.log private-metadata.log private-upload.log; do
+            if [ -f "$RUNNER_TEMP/$file" ]; then
+              cp "$RUNNER_TEMP/$file" "$diagnostic_dir/$file"
+            fi
+          done
+          if bash scripts/upload-drive.sh \
+            "$diagnostic_dir" \
+            "$JOB_ID" \
+            diagnostics \
+            "$REVISION" \
+            >"$RUNNER_TEMP/private-diagnostic-upload.log" 2>&1; then
+            echo "Private finalize diagnostics stored without duplicating rendered media."
+          else
+            echo "Private finalize diagnostic delivery failed."
+            tail -n 8 "$RUNNER_TEMP/private-diagnostic-upload.log" \
+              | sed -E 's/(token|client_secret|refresh_token|access_token)[[:space:]]*=[[:space:]]*[^[:space:]]+/\1=[REDACTED]/Ig'
+            exit 1
+          fi
+
       - name: Create successful finalize sentinel
         if: >-
           steps.finalize_dedupe.outputs.cache-hit != 'true' &&
