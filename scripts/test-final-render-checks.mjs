@@ -4,9 +4,11 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 
 const script = fs.readFileSync(new URL("./run-render.sh", import.meta.url), "utf8");
+const workflow = fs.readFileSync(new URL("../.github/workflows/render.yml", import.meta.url), "utf8");
 
 assert.match(script, /FOCUSED_SOURCE_CHECK="npx eslint src && npx tsc --noEmit"/);
-assert.match(script, /if \[ "\$PREPARE_COMMAND" = "npm run long:prepare" \]; then/);
+assert.match(script, /CONFIGURED_PREPARE_COMMAND/);
+assert.match(script, /if \[ "\$JOB_FORMAT" = "long" \]; then\n  PREPARE_COMMAND="npm run long:prepare"/);
 assert.match(script, /FINAL_CONTRACT_COMMAND="npm run long:contract:test"/);
 assert.match(script, /FINAL_CONTRACT_COMMAND="npm run custom:contract:test"/);
 assert.match(script, /bash -o pipefail -c "\$FOCUSED_SOURCE_CHECK"/);
@@ -34,4 +36,16 @@ assert.match(qualityGate, /extractDurations\(mediaAnalysis\.stderr, "silence_dur
 assert.match(qualityGate, /extractDurations\(mediaAnalysis\.stderr, "freeze_duration"\)/);
 assert.doesNotMatch(qualityGate, /const \[black, silence, freeze\] = await Promise\.all/);
 
-console.log("Final renders use focused checks, bounded review derivatives, and one-pass deterministic media analysis while preserving render quality settings.");
+// GitHub's expression language loosely coerces empty outputs. Stage authority
+// therefore uses explicit boolean outputs, and only a fully successful stage may
+// write the canonical Drive package.
+assert.match(workflow, /echo "ok=true" >> "\$GITHUB_OUTPUT"/);
+assert.match(workflow, /steps\.audio_restore\.outputs\.ok == 'true'/);
+assert.match(workflow, /steps\.render\.outputs\.ok == 'true'/);
+assert.match(workflow, /steps\.quality\.outputs\.ok == 'true'/);
+assert.match(workflow, /Deliver successful private package to Google Drive/);
+assert.match(workflow, /Deliver failed-attempt diagnostics privately/);
+assert.match(workflow, /diagnostics \\\n            "\$REVISION"/);
+assert.doesNotMatch(workflow, /steps\.(?:audio_restore|render|quality|sequence|voice)\.outputs\.exit_code == '0'/);
+
+console.log("Final renders use worker-owned preparation, focused checks, deterministic QC, and explicit success-only Drive authority.");
