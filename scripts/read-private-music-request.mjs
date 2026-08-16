@@ -9,42 +9,63 @@ if (!filePath || !fs.existsSync(filePath)) process.exit(0);
 const audioDesign = JSON.parse(fs.readFileSync(filePath, "utf8"));
 if (audioDesign.qualityVersion !== 2) process.exit(0);
 
-const candidates = Array.isArray(audioDesign.musicBeds)
+const musicCandidates = Array.isArray(audioDesign.musicBeds)
   ? audioDesign.musicBeds
   : audioDesign.music
     ? [audioDesign.music]
     : [];
+const sfxCandidates = Array.isArray(audioDesign.soundEffects)
+  ? audioDesign.soundEffects.filter((cue) => cue?.library != null)
+  : [];
 
-const ALLOWED_PRIVATE_LIBRARIES = new Set(["telic-original-v1", "channel-library-v1"]);
+const candidates = [
+  ...musicCandidates.map((item) => ({kind: "music", item})),
+  ...sfxCandidates.map((item) => ({kind: "sfx", item})),
+];
+const ALLOWED_PRIVATE_MUSIC_LIBRARIES = new Set(["telic-original-v1", "channel-library-v1"]);
 const rows = [];
 const seen = new Set();
-for (const music of candidates) {
-  if (!ALLOWED_PRIVATE_LIBRARIES.has(music?.library)) {
-    throw new Error("Private music request did not declare an approved channel-owned library.");
+
+for (const {kind, item} of candidates) {
+  if (kind === "music") {
+    if (!ALLOWED_PRIVATE_MUSIC_LIBRARIES.has(item?.library)) {
+      throw new Error("Private music request did not declare an approved channel-owned library.");
+    }
+  } else if (item?.library !== "channel-library-v1") {
+    throw new Error("Private SFX request did not declare the approved channel-owned library.");
   }
+
   for (const [field, value] of [
-    ["driveFolderId", music.driveFolderId],
-    ["driveFileId", music.driveFileId],
+    ["driveFolderId", item.driveFolderId],
+    ["driveFileId", item.driveFileId],
   ]) {
     if (typeof value !== "string" || !/^[A-Za-z0-9_-]{10,128}$/.test(value)) {
-      throw new Error(`Private music request has an invalid ${field}.`);
+      throw new Error(`Private ${kind} request has an invalid ${field}.`);
     }
   }
-  if (typeof music.fileName !== "string" || !/^[A-Za-z0-9_. -]{3,128}\.mp3$/i.test(music.fileName)) {
-    throw new Error("Private music request has an invalid fileName.");
+
+  const filePattern = kind === "music"
+    ? /^[A-Za-z0-9_. -]{3,128}\.mp3$/i
+    : /^[A-Za-z0-9_. -]{3,128}\.(?:wav|mp3)$/i;
+  if (typeof item.fileName !== "string" || !filePattern.test(item.fileName)) {
+    throw new Error(`Private ${kind} request has an invalid fileName.`);
   }
   if (
-    typeof music.assetPath !== "string" ||
-    !music.assetPath.startsWith("public/assets/current/") ||
-    path.isAbsolute(music.assetPath) ||
-    music.assetPath.split(/[\\/]/).includes("..")
+    typeof item.assetPath !== "string" ||
+    !item.assetPath.startsWith("public/assets/current/") ||
+    path.isAbsolute(item.assetPath) ||
+    item.assetPath.split(/[\\/]/).includes("..")
   ) {
-    throw new Error("Private music request has an unsafe assetPath.");
+    throw new Error(`Private ${kind} request has an unsafe assetPath.`);
   }
-  const key = `${music.driveFileId}\n${music.assetPath}`;
+  if (path.extname(item.assetPath).toLowerCase() !== path.extname(item.fileName).toLowerCase()) {
+    throw new Error(`Private ${kind} request assetPath extension does not match fileName.`);
+  }
+
+  const key = `${item.driveFileId}\n${item.assetPath}`;
   if (seen.has(key)) continue;
   seen.add(key);
-  rows.push([music.driveFolderId, music.driveFileId, music.fileName, music.assetPath].join("\t"));
+  rows.push([item.driveFolderId, item.driveFileId, item.fileName, item.assetPath].join("\t"));
 }
 
 process.stdout.write(rows.join("\n") + (rows.length ? "\n" : ""));
