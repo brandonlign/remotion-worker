@@ -18,91 +18,85 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Download verified Mixkit candidates
+      - name: Download pinned licensed audio candidates
         shell: bash
         run: |
           set -Eeuo pipefail
           OUT="$RUNNER_TEMP/coffee-audio"
           mkdir -p "$OUT/music" "$OUT/sfx"
-          python3 - "$OUT" <<'PY'
-          import html as htmlmod
-          import json
-          import pathlib
-          import re
-          import sys
-          import urllib.request
 
-          out = pathlib.Path(sys.argv[1])
-          headers = {
-              "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 Chrome/139 Safari/537.36",
-              "Referer": "https://mixkit.co/",
-              "Accept": "audio/mpeg,audio/*;q=0.9,text/html;q=0.8,*/*;q=0.5",
+          curl --fail --location --silent --show-error \
+            'https://raw.githubusercontent.com/hafiy-hz/ITProject/2476d32420a2f5779bff473fb94431bd63188f30/Sounds/mixkit-serene-view-443.mp3' \
+            -o "$OUT/music/serene-view-443.mp3"
+          curl --fail --location --silent --show-error \
+            'https://raw.githubusercontent.com/mindaugasrukas/life_duel/2ec43a8669589d5aa571e25e3c052f74cfeb8975/games/sounds/mixkit-sweet-september-282.mp3' \
+            -o "$OUT/music/sweet-september-282.mp3"
+
+          BASE='https://raw.githubusercontent.com/Vincentwei1021/video-shotcraft/0d6f0b57f0d4d6700761644c07f7ef03c3e50234/assets/audio/sfx'
+          curl --fail --location --silent --show-error "$BASE/fluid/water-bubble.mp3" -o "$OUT/sfx/water-bubble-1317.mp3"
+          curl --fail --location --silent --show-error "$BASE/fluid/water-splash.mp3" -o "$OUT/sfx/water-splash-1311.mp3"
+          curl --fail --location --silent --show-error "$BASE/glass/glass-plate-slide.mp3" -o "$OUT/sfx/glass-plate-slide-1527.mp3"
+          curl --fail --location --silent --show-error "$BASE/transition/sweep-short.mp3" -o "$OUT/sfx/short-transition-sweep.mp3"
+
+          cat > "$OUT/manifest.json" <<'JSON'
+          {
+            "library": "Coffee licensed starter audio v1",
+            "license": "Mixkit License / Mixkit Sound Effects Free License",
+            "music": [
+              {
+                "fileName": "serene-view-443.mp3",
+                "title": "Serene View",
+                "creator": "Arulo",
+                "mixkitId": 443,
+                "sourcePage": "https://mixkit.co/free-stock-music/",
+                "transportMirror": "hafiy-hz/ITProject@2476d32420a2f5779bff473fb94431bd63188f30"
+              },
+              {
+                "fileName": "sweet-september-282.mp3",
+                "title": "Sweet September",
+                "creator": "Arulo",
+                "mixkitId": 282,
+                "sourcePage": "https://mixkit.co/free-stock-music/lo-fi-beats/",
+                "transportMirror": "mindaugasrukas/life_duel@2ec43a8669589d5aa571e25e3c052f74cfeb8975"
+              }
+            ],
+            "sfx": [
+              {
+                "fileName": "water-bubble-1317.mp3",
+                "title": "Water bubble",
+                "mixkitId": 1317,
+                "sourcePage": "https://mixkit.co/free-sound-effects/water/",
+                "transportMirror": "Vincentwei1021/video-shotcraft@0d6f0b57f0d4d6700761644c07f7ef03c3e50234"
+              },
+              {
+                "fileName": "water-splash-1311.mp3",
+                "title": "Water splash",
+                "mixkitId": 1311,
+                "sourcePage": "https://mixkit.co/free-sound-effects/water/",
+                "transportMirror": "Vincentwei1021/video-shotcraft@0d6f0b57f0d4d6700761644c07f7ef03c3e50234"
+              },
+              {
+                "fileName": "glass-plate-slide-1527.mp3",
+                "title": "Glass plate slide",
+                "mixkitId": 1527,
+                "sourcePage": "https://mixkit.co/free-sound-effects/glass/",
+                "transportMirror": "Vincentwei1021/video-shotcraft@0d6f0b57f0d4d6700761644c07f7ef03c3e50234"
+              },
+              {
+                "fileName": "short-transition-sweep.mp3",
+                "title": "Short transition sweep",
+                "sourcePage": "https://mixkit.co/free-sound-effects/transition/",
+                "transportMirror": "Vincentwei1021/video-shotcraft@0d6f0b57f0d4d6700761644c07f7ef03c3e50234"
+              }
+            ]
           }
-
-          def get(url):
-              req = urllib.request.Request(url, headers=headers)
-              with urllib.request.urlopen(req, timeout=30) as r:
-                  return r.read(), r.headers.get_content_type()
-
-          manifest = {"license": "Mixkit Free License", "music": [], "sfx": []}
-
-          music = [
-              ("serene-view.mp3", "Serene View — Arulo", "https://mixkit.co/free-stock-music/", "https://assets.mixkit.co/music/preview/mixkit-serene-view-443.mp3"),
-              ("sweet-september.mp3", "Sweet September — Arulo", "https://mixkit.co/free-stock-music/lo-fi-beats/", "https://assets.mixkit.co/music/preview/mixkit-sweet-september-282.mp3"),
-          ]
-          for filename, title, page, url in music:
-              data, ctype = get(url)
-              if len(data) < 100_000 or not (ctype.startswith("audio/") or data[:3] == b"ID3" or data[:2] in (b"\xff\xfb", b"\xff\xf3", b"\xff\xf2")):
-                  raise SystemExit(f"Music download failed validation: {title} ({ctype}, {len(data)} bytes)")
-              (out / "music" / filename).write_bytes(data)
-              manifest["music"].append({"fileName": filename, "title": title, "sourcePage": page, "sourceUrl": url, "bytes": len(data)})
-
-          kitchen_url = "https://mixkit.co/free-sound-effects/kitchen/"
-          raw, _ = get(kitchen_url)
-          text = htmlmod.unescape(raw.decode("utf-8", "replace"))
-          asset_re = re.compile(r"https://assets\.mixkit\.co/active_storage/sfx/\d+/\d+-preview\.mp3")
-          asset_matches = list(asset_re.finditer(text))
-          if not asset_matches:
-              raise SystemExit("Mixkit kitchen page exposed no audio preview URLs.")
-
-          def nearest_asset(title):
-              positions = [m.start() for m in re.finditer(re.escape(title), text, flags=re.I)]
-              if not positions:
-                  raise SystemExit(f"Mixkit title not found: {title}")
-              pos = positions[0]
-              candidates = sorted(asset_matches, key=lambda m: abs(m.start() - pos))
-              chosen = candidates[0]
-              if abs(chosen.start() - pos) > 8000:
-                  raise SystemExit(f"No nearby Mixkit asset URL for {title}")
-              return chosen.group(0)
-
-          sfx = [
-              ("pouring-water-glass.mp3", "Pouring water in a glass"),
-              ("bowl-placed-table.mp3", "Bowl placed on table"),
-              ("electric-switch.mp3", "Electric switch"),
-              ("stirring-ceramic.mp3", "Stirring cutlery in ceramic plate"),
-              ("blender-working.mp3", "Blender working in the kitchen"),
-          ]
-          used = set()
-          for filename, title in sfx:
-              url = nearest_asset(title)
-              if url in used:
-                  raise SystemExit(f"Duplicate scraped SFX URL for {title}: {url}")
-              used.add(url)
-              data, ctype = get(url)
-              if len(data) < 5_000 or not (ctype.startswith("audio/") or data[:3] == b"ID3" or data[:2] in (b"\xff\xfb", b"\xff\xf3", b"\xff\xf2")):
-                  raise SystemExit(f"SFX download failed validation: {title} ({ctype}, {len(data)} bytes)")
-              (out / "sfx" / filename).write_bytes(data)
-              manifest["sfx"].append({"fileName": filename, "title": title, "sourcePage": kitchen_url, "sourceUrl": url, "bytes": len(data)})
-
-          (out / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
-          print(json.dumps({"music": len(manifest["music"]), "sfx": len(manifest["sfx"]), "titles": [x["title"] for x in manifest["music"] + manifest["sfx"]]}, indent=2))
-          PY
+          JSON
 
           for f in "$OUT"/music/*.mp3 "$OUT"/sfx/*.mp3; do
             test -s "$f"
             ffprobe -v error -show_entries format=duration -of default=nk=1:nw=1 "$f" >/dev/null
           done
+          sha256sum "$OUT"/music/*.mp3 "$OUT"/sfx/*.mp3 > "$OUT/audio-sha256.txt"
 
       - name: Upload candidates privately to Coffee Drive staging
         shell: bash
