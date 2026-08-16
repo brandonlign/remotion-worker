@@ -3,6 +3,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import process from "node:process";
+import {fileURLToPath} from "node:url";
 import {resolveQualityPolicy} from "./quality-policy.mjs";
 
 const readJson = async (filePath) => JSON.parse(await fs.readFile(filePath, "utf8"));
@@ -44,11 +45,14 @@ export const validateRuntimePolicy = async (sourceDirArg) => {
   };
 };
 
-const sourceDir = process.argv[2];
-if (!sourceDir) throw new Error("Usage: validate-runtime-policy.mjs <private-source-dir>");
-validateRuntimePolicy(sourceDir)
-  .then((result) => console.log(`Validated locked ${result.format} runtime ${result.durationSeconds.toFixed(3)}s against ${result.policySource} ${result.minimumDurationSeconds}-${result.maximumDurationSeconds}s.`))
-  .catch((error) => {
-    console.error(error instanceof Error ? error.message : String(error));
-    process.exitCode = 1;
-  });
+const isMain = process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url);
+if (isMain) {
+  const sourceDir = process.argv[2];
+  if (!sourceDir) throw new Error("Usage: validate-runtime-policy.mjs <private-source-dir>");
+  validateRuntimePolicy(sourceDir)
+    .then((result) => console.log(`Validated locked ${result.format} runtime ${result.durationSeconds.toFixed(3)}s against ${result.policySource} ${result.minimumDurationSeconds}-${result.maximumDurationSeconds}s.`))
+    .catch((error) => {
+      console.error(error instanceof Error ? error.message : String(error));
+      process.exitCode = 1;
+    });
+}
