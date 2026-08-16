@@ -55,9 +55,29 @@ assert.match(qualityGate, /extractDurations\(mediaAnalysis\.stderr, "silence_dur
 assert.match(qualityGate, /extractDurations\(mediaAnalysis\.stderr, "freeze_duration"\)/);
 assert.doesNotMatch(qualityGate, /const \[black, silence, freeze\] = await Promise\.all/);
 
-assert.match(workflow, /Cache verified installed Node dependencies/);
+assert.match(workflow, /Restore verified installed Node dependencies/);
+assert.match(workflow, /id: node_dependencies_cache/);
+assert.match(workflow, /uses: actions\/cache\/restore@v4/);
 assert.match(workflow, /path: private-source\/node_modules/);
 assert.match(workflow, /telic-remotion-node-modules-v1-\$\{\{ runner\.os \}\}-\$\{\{ runner\.arch \}\}-node22-\$\{\{ hashFiles\('private-source\/package-lock\.json'\) \}\}/);
+assert.match(workflow, /Save verified installed Node dependencies/);
+assert.match(workflow, /steps\.node_dependencies_cache\.outputs\.cache-hit != 'true'/);
+assert.match(workflow, /uses: actions\/cache\/save@v4/);
+
+assert.match(workflow, /Read private job format/);
+assert.match(workflow, /Restore locked long-form voiceover/);
+assert.match(workflow, /id: voiceover_cache/);
+assert.match(workflow, /telic-long-voice-v1-/);
+assert.match(workflow, /Save locked long-form voiceover/);
+assert.match(workflow, /steps\.source_job\.outputs\.format == 'long'/);
+assert.match(workflow, /steps\.voiceover_cache\.outputs\.cache-hit != 'true'/);
+
+const dependencySave = workflow.indexOf('- name: Save verified installed Node dependencies');
+const voiceSave = workflow.indexOf('- name: Save locked long-form voiceover');
+const cleanup = workflow.indexOf('- name: Remove private source checkout');
+assert.ok(dependencySave >= 0 && dependencySave < cleanup, "node_modules must be saved before private-source cleanup");
+assert.ok(voiceSave >= 0 && voiceSave < cleanup, "voiceover must be saved before private-source cleanup");
+
 assert.match(workflow, /echo "ok=true" >> "\$GITHUB_OUTPUT"/);
 assert.match(workflow, /steps\.audio_restore\.outputs\.ok == 'true'/);
 assert.match(workflow, /steps\.render\.outputs\.ok == 'true'/);
@@ -66,4 +86,4 @@ assert.match(workflow, /Deliver successful private package to Google Drive/);
 assert.match(workflow, /Deliver failed-attempt diagnostics privately/);
 assert.doesNotMatch(workflow, /steps\.(?:audio_restore|render|quality|sequence|voice)\.outputs\.exit_code == '0'/);
 
-console.log("Final renders reuse only lockfile-verified cached dependencies, defer duplicate Actions checksum work, preflight metadata before expensive work, and retain explicit success-only Drive authority.");
+console.log("Final renders reuse only verified caches, persist them before cleanup, defer duplicate Actions checksum work, preflight metadata before expensive work, and retain explicit success-only Drive authority.");
