@@ -73,8 +73,12 @@ jobs:
           persist-credentials: false
           fetch-depth: 1
 
+      # Voice preparation uses only built-in/local Node/Python scripts. Do not
+      # restore npm/Remotion dependencies for that stage.
       - name: Cache npm package downloads
-        if: steps.request.outputs.mode != 'render' || steps.render_dedupe.outputs.cache-hit != 'true'
+        if: >-
+          steps.request.outputs.mode != 'voice-prep' &&
+          (steps.request.outputs.mode != 'render' || steps.render_dedupe.outputs.cache-hit != 'true')
         uses: actions/cache@v4
         with:
           path: ~/.npm
@@ -84,7 +88,9 @@ jobs:
 
       - name: Restore verified installed Node dependencies
         id: node_dependencies_cache
-        if: steps.request.outputs.mode != 'render' || steps.render_dedupe.outputs.cache-hit != 'true'
+        if: >-
+          steps.request.outputs.mode != 'voice-prep' &&
+          (steps.request.outputs.mode != 'render' || steps.render_dedupe.outputs.cache-hit != 'true')
         uses: actions/cache/restore@v4
         with:
           path: private-source/node_modules
@@ -99,6 +105,7 @@ jobs:
 
       - name: Cache public full FFmpeg tools
         if: >-
+          steps.request.outputs.mode == 'voice-prep' ||
           steps.request.outputs.mode == 'render-sequence' ||
           (steps.request.outputs.mode == 'render' && steps.render_dedupe.outputs.cache-hit != 'true')
         uses: actions/cache@v4
@@ -121,11 +128,10 @@ jobs:
 
           packages=()
 
-          # Sequence previews and final render review/QC both need full FFmpeg
-          # + ffprobe. Reuse the same checksum-verified public bundle instead of
-          # cold-installing the distro package on every successful final render.
-          # The helper keeps the distro path as a compatibility fallback.
-          if [[ "$RENDER_MODE" == "render-sequence" || "$RENDER_MODE" == "render" ]]; then
+          # Voice prep, sequence previews, and final render review/QC all need
+          # FFmpeg/ffprobe. Reuse the same checksum-verified public bundle rather
+          # than cold-installing the distro package on hosted runners.
+          if [[ "$RENDER_MODE" == "voice-prep" || "$RENDER_MODE" == "render-sequence" || "$RENDER_MODE" == "render" ]]; then
             source scripts/ensure-public-ffmpeg.sh
           elif ! command -v ffmpeg >/dev/null 2>&1; then
             packages+=(ffmpeg)
@@ -152,6 +158,7 @@ jobs:
           SOURCE_SHA: ${{ steps.request.outputs.source_sha }}
           GEMINI_API_KEYS_JSON: ${{ secrets.GEMINI_API_KEYS_JSON }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          RCLONE_CONFIG_B64: ${{ secrets.RCLONE_CONFIG_B64 }}
         run: |
           set +e
           mkdir -p "$RUNNER_TEMP/render-result"
@@ -417,9 +424,9 @@ jobs:
       - name: Save verified installed Node dependencies
         if: >-
           always() &&
+          steps.request.outputs.mode != 'voice-prep' &&
           steps.node_dependencies_cache.outputs.cache-hit != 'true' &&
           (
-            (steps.request.outputs.mode == 'voice-prep' && steps.voice.outputs.ok == 'true') ||
             (steps.request.outputs.mode == 'render-sequence' && steps.sequence.outputs.ok == 'true') ||
             (
               steps.request.outputs.mode == 'render' &&
