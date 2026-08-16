@@ -73,19 +73,6 @@ jobs:
           persist-credentials: false
           fetch-depth: 1
 
-      - name: Read private job format
-        id: source_job
-        if: steps.request.outputs.mode != 'render' || steps.render_dedupe.outputs.cache-hit != 'true'
-        shell: bash
-        run: |
-          set -Eeuo pipefail
-          format="$(node -e 'const fs=require("fs"); const job=JSON.parse(fs.readFileSync("private-source/automation/current/job.json","utf8")); process.stdout.write(String(job.format||""));')"
-          if [[ "$format" != "short" && "$format" != "long" ]]; then
-            echo "Private job format is invalid." >&2
-            exit 65
-          fi
-          echo "format=$format" >> "$GITHUB_OUTPUT"
-
       - name: Cache npm package downloads
         if: steps.request.outputs.mode != 'render' || steps.render_dedupe.outputs.cache-hit != 'true'
         uses: actions/cache@v4
@@ -102,16 +89,6 @@ jobs:
         with:
           path: private-source/node_modules
           key: telic-remotion-node-modules-v1-${{ runner.os }}-${{ runner.arch }}-node22-${{ hashFiles('private-source/package-lock.json') }}
-
-      - name: Restore locked long-form voiceover
-        id: voiceover_cache
-        if: >-
-          steps.source_job.outputs.format == 'long' &&
-          (steps.request.outputs.mode != 'render' || steps.render_dedupe.outputs.cache-hit != 'true')
-        uses: actions/cache/restore@v4
-        with:
-          path: private-source/public/automation/voiceover.mp3
-          key: telic-long-voice-v1-${{ steps.request.outputs.job_id }}-${{ hashFiles('private-source/automation/current/narration.txt', 'private-source/config/telic-voiceover.json', 'private-source/config/coffee-voiceover.json') }}
 
       - name: Cache public rclone binary
         if: steps.request.outputs.mode != 'render' || steps.render_dedupe.outputs.cache-hit != 'true'
@@ -454,25 +431,6 @@ jobs:
         with:
           path: private-source/node_modules
           key: telic-remotion-node-modules-v1-${{ runner.os }}-${{ runner.arch }}-node22-${{ hashFiles('private-source/package-lock.json') }}
-
-      - name: Save locked long-form voiceover
-        if: >-
-          always() &&
-          steps.source_job.outputs.format == 'long' &&
-          steps.voiceover_cache.outputs.cache-hit != 'true' &&
-          (
-            (steps.request.outputs.mode == 'voice-prep' && steps.voice.outputs.ok == 'true') ||
-            (steps.request.outputs.mode == 'render-sequence' && steps.audio_restore.outputs.ok == 'true') ||
-            (
-              steps.request.outputs.mode == 'render' &&
-              steps.render_dedupe.outputs.cache-hit != 'true' &&
-              steps.audio_restore.outputs.ok == 'true'
-            )
-          )
-        uses: actions/cache/save@v4
-        with:
-          path: private-source/public/automation/voiceover.mp3
-          key: telic-long-voice-v1-${{ steps.request.outputs.job_id }}-${{ hashFiles('private-source/automation/current/narration.txt', 'private-source/config/telic-voiceover.json', 'private-source/config/coffee-voiceover.json') }}
 
       - name: Remove private source checkout
         if: always()
