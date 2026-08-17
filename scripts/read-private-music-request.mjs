@@ -7,8 +7,6 @@ const filePath = process.argv[2];
 if (!filePath || !fs.existsSync(filePath)) process.exit(0);
 
 const audioDesign = JSON.parse(fs.readFileSync(filePath, "utf8"));
-if (audioDesign.qualityVersion !== 2) process.exit(0);
-
 const musicCandidates = Array.isArray(audioDesign.musicBeds)
   ? audioDesign.musicBeds
   : audioDesign.music
@@ -17,6 +15,16 @@ const musicCandidates = Array.isArray(audioDesign.musicBeds)
 const sfxCandidates = Array.isArray(audioDesign.soundEffects)
   ? audioDesign.soundEffects.filter((cue) => cue?.library != null)
   : [];
+
+// Telic quality-v2 and channel-owned audio plans both use the same private
+// Drive transport contract. Preserve the old qualityVersion guard for legacy
+// Telic packages, while allowing a channel-library-v1 plan (such as Coffee)
+// to request only the exact provider-identified files it declares.
+const hasChannelLibraryRequest =
+  musicCandidates.some((item) => item?.library === "channel-library-v1") ||
+  sfxCandidates.some((item) => item?.library === "channel-library-v1") ||
+  audioDesign.musicLibrarySelection?.library === "channel-library-v1";
+if (audioDesign.qualityVersion !== 2 && !hasChannelLibraryRequest) process.exit(0);
 
 const candidates = [
   ...musicCandidates.map((item) => ({kind: "music", item})),
