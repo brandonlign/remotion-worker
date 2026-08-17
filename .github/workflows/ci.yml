@@ -31,16 +31,18 @@ jobs:
           printf 'Render PR changed files:\n'
           printf '  %s\n' "${changed[@]}"
 
-          if [ "${#changed[@]}" -lt 1 ] || [ "${#changed[@]}" -gt 2 ]; then
-            echo "render/* PRs may change only one or both isolated worker request files." >&2
+          if [ "${#changed[@]}" -lt 1 ] || [ "${#changed[@]}" -gt 3 ]; then
+            echo "render/* PRs may change only isolated render, preview, and/or finalize request files." >&2
             exit 1
           fi
 
           has_render_request=false
+          has_preview_request=false
           has_finalize_request=false
           for file in "${changed[@]}"; do
             case "$file" in
               jobs/request.json) has_render_request=true ;;
+              jobs/preview-request.json) has_preview_request=true ;;
               jobs/finalize-request.json) has_finalize_request=true ;;
               *)
                 echo "render/* PRs are request-only; reusable worker code must be committed and validated on main first." >&2
@@ -49,12 +51,12 @@ jobs:
             esac
           done
 
-          if [ "$has_render_request" != true ] && [ "$has_finalize_request" != true ]; then
-            echo "render/* PRs must contain an isolated render or finalize request." >&2
+          if [ "$has_render_request" != true ] && [ "$has_preview_request" != true ] && [ "$has_finalize_request" != true ]; then
+            echo "render/* PRs must contain an isolated render, preview, or finalize request." >&2
             exit 1
           fi
 
-          HAS_RENDER_REQUEST="$has_render_request" HAS_FINALIZE_REQUEST="$has_finalize_request" node - <<'NODE'
+          HAS_RENDER_REQUEST="$has_render_request" HAS_PREVIEW_REQUEST="$has_preview_request" HAS_FINALIZE_REQUEST="$has_finalize_request" node - <<'NODE'
           const fs = require("node:fs");
           const branch = process.env.HEAD_REF || "";
           const prefix = "render/";
@@ -62,22 +64,30 @@ jobs:
             throw new Error("Worker request branch must be render/<jobId>.");
           }
           const branchJobId = branch.slice(prefix.length);
-          let render = null;
-          let finalize = null;
+          const requests = [];
           if (process.env.HAS_RENDER_REQUEST === "true") {
-            render = JSON.parse(fs.readFileSync("jobs/request.json", "utf8"));
-            if (!render.jobId || render.jobId !== branchJobId) {
+            const value = JSON.parse(fs.readFileSync("jobs/request.json", "utf8"));
+            if (!value.jobId || value.jobId !== branchJobId) {
               throw new Error("jobs/request.json jobId must exactly match the render/<jobId> branch.");
             }
+            requests.push(value);
+          }
+          if (process.env.HAS_PREVIEW_REQUEST === "true") {
+            const value = JSON.parse(fs.readFileSync("jobs/preview-request.json", "utf8"));
+            if (!value.jobId || value.jobId !== branchJobId) {
+              throw new Error("jobs/preview-request.json jobId must exactly match the render/<jobId> branch.");
+            }
+            requests.push(value);
           }
           if (process.env.HAS_FINALIZE_REQUEST === "true") {
-            finalize = JSON.parse(fs.readFileSync("jobs/finalize-request.json", "utf8"));
-            if (!finalize.jobId || finalize.jobId !== branchJobId) {
+            const value = JSON.parse(fs.readFileSync("jobs/finalize-request.json", "utf8"));
+            if (!value.jobId || value.jobId !== branchJobId) {
               throw new Error("jobs/finalize-request.json jobId must exactly match the render/<jobId> branch.");
             }
+            requests.push(value);
           }
-          if (render && finalize && render.jobId !== finalize.jobId) {
-            throw new Error("Render and finalize requests must belong to the exact same job.");
+          if (requests.some((value) => value.jobId !== requests[0].jobId)) {
+            throw new Error("All worker requests on one render branch must belong to the exact same job.");
           }
           NODE
 
@@ -89,7 +99,7 @@ jobs:
       # render/* PRs cannot modify reusable worker code: the scope gate above
       # proves they contain only isolated request JSON. Validate those request
       # schemas directly instead of rerunning the entire worker regression suite
-      # for every long-form window revision.
+      # for every long-form window or Short preview revision.
       - name: Validate render request files
         if: startsWith(github.head_ref, 'render/')
         shell: bash
@@ -97,6 +107,9 @@ jobs:
           set -Eeuo pipefail
           if [ -f jobs/request.json ]; then
             node scripts/validate-job.mjs jobs/request.json >/dev/null
+          fi
+          if [ -f jobs/preview-request.json ]; then
+            node scripts/validate-preview-job.mjs jobs/preview-request.json >/dev/null
           fi
           if [ -f jobs/finalize-request.json ]; then
             node scripts/validate-finalize-job.mjs jobs/finalize-request.json >/dev/null
