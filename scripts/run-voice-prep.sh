@@ -15,6 +15,11 @@ trap stage_cleanup EXIT
 
 prepare_private_source_stage "Voice preparation"
 
+# The public request validator derives channel ownership from the immutable job
+# prefix. Pass that channel explicitly into private source tooling so non-Telic
+# jobs never fall through legacy source-side channel inference.
+export TELIC_VNEXT_CHANNEL_ID="${JOB_ID%%-*}"
+
 # Recovery should never regenerate an identical long-form voice package if the
 # exact source/narration/audio identity is already durable in private Drive.
 # This optional fast path is private-only and fail-open: any absence, stale
