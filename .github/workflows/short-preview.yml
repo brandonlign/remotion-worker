@@ -1,0 +1,184 @@
+name: Short QC preview
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    paths:
+      - jobs/preview-request.json
+
+permissions:
+  contents: read
+  pull-requests: read
+
+concurrency:
+  group: remotion-short-preview-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  preview:
+    if: >-
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      startsWith(github.head_ref, 'render/')
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Check out worker
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Validate preview request
+        id: request
+        run: node scripts/validate-preview-job.mjs jobs/preview-request.json
+
+      - name: Check out exact private source
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ secrets.SOURCE_REPOSITORY }}
+          ref: ${{ steps.request.outputs.source_sha }}
+          token: ${{ secrets.SOURCE_REPO_TOKEN }}
+          path: private-source
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: Restore verified installed Node dependencies
+        id: node_dependencies_cache
+        uses: actions/cache/restore@v4
+        with:
+          path: private-source/node_modules
+          key: telic-remotion-node-modules-v1-${{ runner.os }}-${{ runner.arch }}-node22-${{ hashFiles('private-source/package-lock.json') }}
+
+      - name: Cache npm package downloads on dependency miss
+        if: steps.node_dependencies_cache.outputs.cache-hit != 'true'
+        uses: actions/cache@v4
+        with:
+          path: ~/.npm
+          key: telic-remotion-npm-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('private-source/package-lock.json') }}
+          restore-keys: |
+            telic-remotion-npm-${{ runner.os }}-${{ runner.arch }}-
+
+      - name: Cache public rclone binary
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/telic-tools/rclone-v1.75.0
+          key: telic-rclone-v1.75.0-${{ runner.os }}-${{ runner.arch }}
+
+      - name: Cache public FFmpeg tools
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/telic-tools/ffmpeg-n8.1-btbn-20260813
+          key: telic-ffmpeg-n8.1-btbn-20260813-${{ runner.os }}-${{ runner.arch }}-py3
+
+      - name: Ensure preview tools
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          source scripts/ensure-public-rclone.sh
+          source scripts/ensure-public-ffmpeg.sh
+
+      - name: Restore locked voiceover and timing
+        id: audio_restore
+        shell: bash
+        env:
+          RCLONE_CONFIG_B64: ${{ secrets.RCLONE_CONFIG_B64 }}
+          JOB_ID: ${{ steps.request.outputs.job_id }}
+        run: |
+          set +e
+          mkdir -p "$RUNNER_TEMP/preview-result"
+          bash scripts/download-drive-audio.sh \
+            private-source \
+            "$JOB_ID" \
+            >"$RUNNER_TEMP/private-audio-restore.log" 2>&1
+          code=$?
+          cp "$RUNNER_TEMP/private-audio-restore.log" "$RUNNER_TEMP/preview-result/private-audio-restore.log"
+          echo "exit_code=$code" >> "$GITHUB_OUTPUT"
+          if [ "$code" -eq 0 ]; then
+            echo "ok=true" >> "$GITHUB_OUTPUT"
+            echo "Restored locked audio for Short preview."
+          else
+            echo "ok=false" >> "$GITHUB_OUTPUT"
+            echo "Short preview audio restore failed; preserving private diagnostics."
+          fi
+          exit 0
+
+      - name: Render cheap full-Short preview
+        id: preview
+        if: steps.audio_restore.outputs.ok == 'true'
+        shell: bash
+        env:
+          JOB_ID: ${{ steps.request.outputs.job_id }}
+          SOURCE_SHA: ${{ steps.request.outputs.source_sha }}
+        run: |
+          set +e
+          bash scripts/run-short-preview.sh \
+            jobs/preview-request.json \
+            private-source \
+            "$RUNNER_TEMP/preview-result" \
+            >"$RUNNER_TEMP/private-preview.log" 2>&1
+          code=$?
+          cp "$RUNNER_TEMP/private-preview.log" "$RUNNER_TEMP/preview-result/private-preview.log"
+          printf '%s\n' "$code" > "$RUNNER_TEMP/preview-result/preview-exit-code.txt"
+          echo "exit_code=$code" >> "$GITHUB_OUTPUT"
+          if [ "$code" -eq 0 ]; then
+            echo "ok=true" >> "$GITHUB_OUTPUT"
+            echo "Short QC preview completed."
+          else
+            echo "ok=false" >> "$GITHUB_OUTPUT"
+            echo "Short QC preview failed; preserving private diagnostics."
+          fi
+          exit 0
+
+      - name: Refresh preview checksums
+        if: always()
+        shell: bash
+        run: |
+          mkdir -p "$RUNNER_TEMP/preview-result"
+          find "$RUNNER_TEMP/preview-result" -type f ! -name checksums.txt -print0 \
+            | sort -z \
+            | xargs -0 -r sha256sum \
+            > "$RUNNER_TEMP/preview-result/checksums.txt"
+
+      - name: Deliver non-canonical preview package to Google Drive
+        id: preview_drive
+        if: always() && steps.request.outcome == 'success'
+        shell: bash
+        env:
+          RCLONE_CONFIG_B64: ${{ secrets.RCLONE_CONFIG_B64 }}
+          JOB_ID: ${{ steps.request.outputs.job_id }}
+          REVISION: ${{ steps.request.outputs.revision }}
+        run: |
+          if bash scripts/upload-preview-drive.sh \
+            "$RUNNER_TEMP/preview-result" \
+            "$JOB_ID" \
+            "$REVISION" \
+            >"$RUNNER_TEMP/private-preview-upload.log" 2>&1; then
+            echo "ok=true" >> "$GITHUB_OUTPUT"
+            echo "Private non-canonical Short preview delivered."
+          else
+            echo "ok=false" >> "$GITHUB_OUTPUT"
+            echo "Private Short preview delivery failed."
+            exit 1
+          fi
+
+      - name: Remove private source checkout
+        if: always()
+        shell: bash
+        run: rm -rf private-source
+
+      - name: Require successful preview path
+        if: always()
+        shell: bash
+        env:
+          AUDIO_OK: ${{ steps.audio_restore.outputs.ok }}
+          PREVIEW_OK: ${{ steps.preview.outputs.ok }}
+          DRIVE_OK: ${{ steps.preview_drive.outputs.ok }}
+        run: |
+          if [ "$AUDIO_OK" != "true" ] || [ "$PREVIEW_OK" != "true" ] || [ "$DRIVE_OK" != "true" ]; then
+            echo "Short QC preview path failed."
+            exit 1
+          fi
+          echo "Short QC preview path passed."
