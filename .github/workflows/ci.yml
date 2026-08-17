@@ -18,8 +18,8 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Enforce request-only render PR scope
-        if: startsWith(github.head_ref, 'render/')
+      - name: Enforce request-only worker PR scope
+        if: startsWith(github.head_ref, 'render/') || startsWith(github.head_ref, 'preview/')
         shell: bash
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
@@ -28,94 +28,78 @@ jobs:
         run: |
           set -Eeuo pipefail
           mapfile -t changed < <(git diff --name-only "$BASE_SHA" "$HEAD_SHA")
-          printf 'Render PR changed files:\n'
+          printf 'Worker request PR changed files:\n'
           printf '  %s\n' "${changed[@]}"
 
-          if [ "${#changed[@]}" -lt 1 ] || [ "${#changed[@]}" -gt 3 ]; then
-            echo "render/* PRs may change only isolated render, preview, and/or finalize request files." >&2
+          if [[ "$HEAD_REF" == preview/* ]]; then
+            if [ "${#changed[@]}" -ne 1 ] || [ "${changed[0]}" != "jobs/preview-request.json" ]; then
+              echo "preview/* PRs may change only jobs/preview-request.json." >&2
+              exit 1
+            fi
+            branch_job_id="${HEAD_REF#preview/}"
+            request_job_id="$(node -p "JSON.parse(require('fs').readFileSync('jobs/preview-request.json','utf8')).jobId || ''")"
+            if [ -z "$branch_job_id" ] || [ "$request_job_id" != "$branch_job_id" ]; then
+              echo "jobs/preview-request.json jobId must exactly match preview/<jobId>." >&2
+              exit 1
+            fi
+            exit 0
+          fi
+
+          if [ "${#changed[@]}" -lt 1 ] || [ "${#changed[@]}" -gt 2 ]; then
+            echo "render/* PRs may change only jobs/request.json and/or jobs/finalize-request.json." >&2
             exit 1
           fi
 
           has_render_request=false
-          has_preview_request=false
           has_finalize_request=false
           for file in "${changed[@]}"; do
             case "$file" in
               jobs/request.json) has_render_request=true ;;
-              jobs/preview-request.json) has_preview_request=true ;;
               jobs/finalize-request.json) has_finalize_request=true ;;
               *)
-                echo "render/* PRs are request-only; reusable worker code must be committed and validated on main first." >&2
+                echo "render/* PRs must never carry preview requests or reusable worker code." >&2
                 exit 1
                 ;;
             esac
           done
 
-          if [ "$has_render_request" != true ] && [ "$has_preview_request" != true ] && [ "$has_finalize_request" != true ]; then
-            echo "render/* PRs must contain an isolated render, preview, or finalize request." >&2
+          branch_job_id="${HEAD_REF#render/}"
+          if [ -z "$branch_job_id" ]; then
+            echo "Worker render branch must be render/<jobId>." >&2
             exit 1
           fi
-
-          HAS_RENDER_REQUEST="$has_render_request" HAS_PREVIEW_REQUEST="$has_preview_request" HAS_FINALIZE_REQUEST="$has_finalize_request" node - <<'NODE'
-          const fs = require("node:fs");
-          const branch = process.env.HEAD_REF || "";
-          const prefix = "render/";
-          if (!branch.startsWith(prefix) || branch.length <= prefix.length) {
-            throw new Error("Worker request branch must be render/<jobId>.");
-          }
-          const branchJobId = branch.slice(prefix.length);
-          const requests = [];
-          if (process.env.HAS_RENDER_REQUEST === "true") {
-            const value = JSON.parse(fs.readFileSync("jobs/request.json", "utf8"));
-            if (!value.jobId || value.jobId !== branchJobId) {
-              throw new Error("jobs/request.json jobId must exactly match the render/<jobId> branch.");
-            }
-            requests.push(value);
-          }
-          if (process.env.HAS_PREVIEW_REQUEST === "true") {
-            const value = JSON.parse(fs.readFileSync("jobs/preview-request.json", "utf8"));
-            if (!value.jobId || value.jobId !== branchJobId) {
-              throw new Error("jobs/preview-request.json jobId must exactly match the render/<jobId> branch.");
-            }
-            requests.push(value);
-          }
-          if (process.env.HAS_FINALIZE_REQUEST === "true") {
-            const value = JSON.parse(fs.readFileSync("jobs/finalize-request.json", "utf8"));
-            if (!value.jobId || value.jobId !== branchJobId) {
-              throw new Error("jobs/finalize-request.json jobId must exactly match the render/<jobId> branch.");
-            }
-            requests.push(value);
-          }
-          if (requests.some((value) => value.jobId !== requests[0].jobId)) {
-            throw new Error("All worker requests on one render branch must belong to the exact same job.");
-          }
-          NODE
+          if [ "$has_render_request" = true ]; then
+            request_job_id="$(node -p "JSON.parse(require('fs').readFileSync('jobs/request.json','utf8')).jobId || ''")"
+            [ "$request_job_id" = "$branch_job_id" ] || { echo "jobs/request.json jobId must match render/<jobId>." >&2; exit 1; }
+          fi
+          if [ "$has_finalize_request" = true ]; then
+            finalize_job_id="$(node -p "JSON.parse(require('fs').readFileSync('jobs/finalize-request.json','utf8')).jobId || ''")"
+            [ "$finalize_job_id" = "$branch_job_id" ] || { echo "jobs/finalize-request.json jobId must match render/<jobId>." >&2; exit 1; }
+          fi
 
       - name: Set up Node
         uses: actions/setup-node@v4
         with:
           node-version: 22
 
-      # render/* PRs cannot modify reusable worker code: the scope gate above
-      # proves they contain only isolated request JSON. Validate those request
-      # schemas directly instead of rerunning the entire worker regression suite
-      # for every long-form window or Short preview revision.
-      - name: Validate render request files
-        if: startsWith(github.head_ref, 'render/')
+      - name: Validate isolated worker request files
+        if: startsWith(github.head_ref, 'render/') || startsWith(github.head_ref, 'preview/')
         shell: bash
         run: |
           set -Eeuo pipefail
+          if [[ "$GITHUB_HEAD_REF" == preview/* ]]; then
+            node scripts/validate-preview-job.mjs jobs/preview-request.json >/dev/null
+            echo "Preview request validation passed."
+            exit 0
+          fi
           if [ -f jobs/request.json ]; then
             node scripts/validate-job.mjs jobs/request.json >/dev/null
-          fi
-          if [ -f jobs/preview-request.json ]; then
-            node scripts/validate-preview-job.mjs jobs/preview-request.json >/dev/null
           fi
           if [ -f jobs/finalize-request.json ]; then
             node scripts/validate-finalize-job.mjs jobs/finalize-request.json >/dev/null
           fi
-          echo "Request-only render PR validation passed; reusable worker code is inherited from validated main."
+          echo "Render/finalize request validation passed."
 
       - name: Validate worker files
-        if: ${{ !startsWith(github.head_ref, 'render/') }}
+        if: ${{ !startsWith(github.head_ref, 'render/') && !startsWith(github.head_ref, 'preview/') }}
         run: npm run check
