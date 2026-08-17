@@ -18,7 +18,7 @@ jobs:
   preview:
     if: >-
       github.event.pull_request.head.repo.full_name == github.repository &&
-      startsWith(github.head_ref, 'render/')
+      startsWith(github.head_ref, 'preview/')
     runs-on: ubuntu-latest
     timeout-minutes: 45
 
