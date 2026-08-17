@@ -55,9 +55,24 @@ await fs.writeFile(input, JSON.stringify({
 }));
 result = run();
 assert.equal(result.status, 0, result.stderr);
-const rows = result.stdout.trim().split("\n");
+let rows = result.stdout.trim().split("\n");
 assert.equal(rows.length, 2);
 assert.equal(rows[1].split("\t").length, 4);
+assert.match(rows[1], /Cup Set Down\.wav/);
+
+// Coffee's channel-owned long-form audio design uses schemaVersion rather than
+// Telic qualityVersion. It must still restore exact approved Drive identities.
+await fs.writeFile(input, JSON.stringify({
+  schemaVersion: 1,
+  musicLibrarySelection: {...coffeeMusic, trackId: "coffee-track"},
+  musicBeds: [coffeeMusic, coffeeMusic],
+  soundEffects: [coffeeSfx],
+}));
+result = run();
+assert.equal(result.status, 0, result.stderr);
+rows = result.stdout.trim().split("\n");
+assert.equal(rows.length, 2);
+assert.match(rows[0], /Coffee Track 01\.mp3/);
 assert.match(rows[1], /Cup Set Down\.wav/);
 
 await fs.writeFile(input, JSON.stringify({qualityVersion: 1, music}));
