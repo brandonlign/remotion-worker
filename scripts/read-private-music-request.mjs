@@ -16,31 +16,32 @@ const sfxCandidates = Array.isArray(audioDesign.soundEffects)
   ? audioDesign.soundEffects.filter((cue) => cue?.library != null)
   : [];
 
-// Telic quality-v2 and channel-owned audio plans both use the same private
-// Drive transport contract. Preserve the old qualityVersion guard for legacy
-// Telic packages, while allowing a channel-library-v1 plan (such as Coffee)
-// to request only the exact provider-identified files it declares.
-const hasChannelLibraryRequest =
-  musicCandidates.some((item) => item?.library === "channel-library-v1") ||
-  sfxCandidates.some((item) => item?.library === "channel-library-v1") ||
+// Telic quality-v2, channel-owned libraries, and the shared Universal SFX
+// library all use the same private Drive transport contract. The public worker
+// sees only provider identities and destination paths; it never commits or
+// logs the private media itself.
+const hasPrivateLibraryRequest =
+  musicCandidates.some((item) => ["channel-library-v1", "telic-original-v1"].includes(item?.library)) ||
+  sfxCandidates.some((item) => ["channel-library-v1", "universal-sfx-v1"].includes(item?.library)) ||
   audioDesign.musicLibrarySelection?.library === "channel-library-v1";
-if (audioDesign.qualityVersion !== 2 && !hasChannelLibraryRequest) process.exit(0);
+if (audioDesign.qualityVersion !== 2 && !hasPrivateLibraryRequest) process.exit(0);
 
 const candidates = [
   ...musicCandidates.map((item) => ({kind: "music", item})),
   ...sfxCandidates.map((item) => ({kind: "sfx", item})),
 ];
 const ALLOWED_PRIVATE_MUSIC_LIBRARIES = new Set(["telic-original-v1", "channel-library-v1"]);
+const ALLOWED_PRIVATE_SFX_LIBRARIES = new Set(["channel-library-v1", "universal-sfx-v1"]);
 const rows = [];
 const seen = new Set();
 
 for (const {kind, item} of candidates) {
   if (kind === "music") {
     if (!ALLOWED_PRIVATE_MUSIC_LIBRARIES.has(item?.library)) {
-      throw new Error("Private music request did not declare an approved channel-owned library.");
+      throw new Error("Private music request did not declare an approved library.");
     }
-  } else if (item?.library !== "channel-library-v1") {
-    throw new Error("Private SFX request did not declare the approved channel-owned library.");
+  } else if (!ALLOWED_PRIVATE_SFX_LIBRARIES.has(item?.library)) {
+    throw new Error("Private SFX request did not declare an approved channel or Universal SFX library.");
   }
 
   for (const [field, value] of [
