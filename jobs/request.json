@@ -1,6 +1,1 @@
-{
-  "jobId": "telic-long-20260818-011647z-d3e317",
-  "sourceSha": "96c6a3e9183cff74efd463b8f6a8eb659e5d7caa",
-  "revision": 1,
-  "mode": "voice-prep"
-}
+{"jobId":"telic-long-20260818-011647z-d3e317","sourceSha":"2a01ff2118004c55f54f3a5800e95801d169afc6","revision":2,"mode":"render-sequence","sequenceIndex":0}
