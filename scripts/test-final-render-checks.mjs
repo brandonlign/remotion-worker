@@ -9,22 +9,25 @@ const voiceScript = fs.readFileSync(new URL("./run-voice-prep.sh", import.meta.u
 const stageCommon = fs.readFileSync(new URL("./lib/stage-common.sh", import.meta.url), "utf8");
 const workflow = fs.readFileSync(new URL("../.github/workflows/render.yml", import.meta.url), "utf8");
 
-assert.match(script, /FOCUSED_SOURCE_CHECK="npx eslint src && npx tsc --noEmit"/);
 assert.match(script, /CONFIGURED_PREPARE_COMMAND/);
 assert.match(script, /if \[ "\$JOB_FORMAT" = "long" \]; then\n  PREPARE_COMMAND="npm run long:prepare"/);
-assert.match(script, /FINAL_CONTRACT_COMMAND="npm run long:contract:test"/);
-assert.match(script, /FINAL_CONTRACT_COMMAND="npm run custom:contract:test"/);
-assert.match(script, /bash -o pipefail -c "\$FOCUSED_SOURCE_CHECK"/);
-assert.match(script, /bash -o pipefail -c "\$FINAL_CONTRACT_COMMAND"/);
+assert.match(script, /FINAL_VALIDATION_COMMAND="npx eslint src && npx tsc --noEmit && npm run custom:contract:test"/);
+assert.match(script, /FINAL_VALIDATION_COMMAND="npm run long:preflight"/);
+assert.match(script, /bash -o pipefail -c "\$FINAL_VALIDATION_COMMAND"/);
+assert.doesNotMatch(script, /FOCUSED_SOURCE_CHECK=/);
+assert.doesNotMatch(script, /FINAL_CONTRACT_COMMAND=/);
 assert.doesNotMatch(script, /bash -o pipefail -c "\$CHECK_COMMAND"/);
 
 const metadataPreflight = script.indexOf('validate-youtube-metadata.mjs');
 const dependencySetup = script.indexOf('install_private_dependencies "$INSTALL_COMMAND"');
+const deterministicBoundary = script.indexOf('bash -o pipefail -c "$FINAL_VALIDATION_COMMAND"');
 const render = script.indexOf('"$REMOTION_BIN" render');
 assert.ok(metadataPreflight >= 0, "final render must validate YouTube metadata");
 assert.ok(dependencySetup >= 0, "final render must use the verified dependency setup helper");
+assert.ok(deterministicBoundary >= 0, "final render must have one deterministic source-validation boundary");
 assert.ok(metadataPreflight < dependencySetup, "metadata preflight must run before dependency setup/asset preparation");
 assert.ok(metadataPreflight < render, "metadata preflight must run before expensive Remotion rendering");
+assert.ok(deterministicBoundary < render, "all deterministic source validation must finish before expensive Remotion rendering");
 
 assert.match(sequenceScript, /install_private_dependencies "\$INSTALL_COMMAND"/);
 assert.doesNotMatch(voiceScript, /install_private_dependencies|INSTALL_COMMAND|node_modules/);
@@ -96,4 +99,4 @@ assert.match(workflow, /Deliver successful private package to Google Drive/);
 assert.match(workflow, /Deliver failed-attempt diagnostics privately/);
 assert.doesNotMatch(workflow, /steps\.(?:audio_restore|render|quality|sequence|voice)\.outputs\.exit_code == '0'/);
 
-console.log("Final renders reuse only public dependency/tool caches, voice prep skips Remotion dependencies and reuses only exact private Drive output, private media stays out of public caches, and success-only Drive authority remains intact.");
+console.log("Final renders use one aggregated deterministic validation boundary before Remotion, reuse only public dependency/tool caches, keep private media out of public caches, and preserve success-only Drive authority.");
