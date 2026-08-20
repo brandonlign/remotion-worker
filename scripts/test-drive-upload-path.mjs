@@ -23,8 +23,11 @@ assert.match(upload, /if \[ "\$DUPLICATE_JOB_FOLDERS" -gt 1 \]; then/);
 assert.match(upload, /Multiple render folders already exist for this job ID/);
 assert.match(upload, /"gdrive:\$TARGET_PATH"/);
 assert.match(restore, /VOICE_ROOT_PATH="\$\(render_root_for_job_id "\$JOB_ID"\)\/\$JOB_ID"/);
-assert.match(validator, /supportedChannels = new Set\(\["telic", "coffee"\]\)/);
+assert.match(validator, /new Set\(\["telic", "coffee"\]\)\.has\(channelId\)/);
 assert.match(validator, /channel_id=\$\{channelId\}/);
+assert.match(validator, /Full render requests require explicit sourceRepository and sourceIssueNumber authority/);
+assert.match(validator, /source_repository=\$\{request\.sourceRepository \?\? ""\}/);
+assert.match(validator, /source_issue_number=\$\{request\.sourceIssueNumber \?\? ""\}/);
 
 // Public request data must not be able to provide an arbitrary Drive path.
 assert.doesNotMatch(validator, /driveRoot|renderRoot|folderId/i);
@@ -32,4 +35,4 @@ assert.doesNotMatch(upload, /use_telic_renders_root/);
 assert.doesNotMatch(upload, /resolve_unique_folder_id/);
 assert.doesNotMatch(upload, /rclone lsjson gdrive: \\/);
 
-console.log("Drive success delivery is canonical while failed diagnostics stay isolated by revision.");
+console.log("Drive success delivery is canonical while failed diagnostics stay isolated by revision and full renders require explicit source authority.");
