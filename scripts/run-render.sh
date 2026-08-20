@@ -33,9 +33,6 @@ PREPARE_COMMAND="$CONFIGURED_PREPARE_COMMAND"
 FINAL_VALIDATION_COMMAND="npx eslint src && npx tsc --noEmit && npm run custom:contract:test"
 if [ "$JOB_FORMAT" = "long" ]; then
   PREPARE_COMMAND="npm run long:prepare"
-  # The source repository owns one canonical, aggregated long-form preflight.
-  # Never duplicate individual schema/lint/audio checks in the worker: that is
-  # how the old pipeline discovered one incompatibility per expensive revision.
   FINAL_VALIDATION_COMMAND="npm run long:preflight"
 fi
 
@@ -58,7 +55,6 @@ NODE
 node "$WORKER_ROOT/scripts/validate-private-render-contract.mjs" \
   "$SOURCE_DIR" render "$COMPOSITION_ID" "$THUMBNAIL_COMPOSITION_ID" "$CONFIGURED_PREPARE_COMMAND" "$CHECK_COMMAND"
 
-# Reject malformed publishing metadata before dependency setup/rendering.
 node "$WORKER_ROOT/scripts/validate-youtube-metadata.mjs" \
   "$SOURCE_DIR/automation/current/youtube.json" \
   "$JOB_ID"
@@ -67,8 +63,8 @@ install_private_dependencies "$INSTALL_COMMAND"
 cd "$SOURCE_DIR"
 bash -o pipefail -c "$PREPARE_COMMAND"
 
-# Hard render boundary. All deterministic source/schema/audio/packaging/lint
-# defects must be reported here before the first Remotion frame is rendered.
+# Hard render boundary. Long form reports every deterministic source defect in
+# one preflight before the first expensive Remotion frame is rendered.
 bash -o pipefail -c "$FINAL_VALIDATION_COMMAND"
 
 if [ ! -x "$REMOTION_BIN" ]; then
@@ -102,6 +98,6 @@ fs.writeFileSync(outputFile, `${JSON.stringify({
 NODE
 
 node "$WORKER_ROOT/scripts/create-controller-handoff.mjs" \
-  "$OUTPUT_DIR" "$SOURCE_DIR/automation/current/youtube.json" "$JOB_ID" "$SOURCE_SHA"
+  "$OUTPUT_DIR" "$SOURCE_DIR/automation/current/youtube.json" "$REQUEST_FILE"
 
 write_checksums "$OUTPUT_DIR"
