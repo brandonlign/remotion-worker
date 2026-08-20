@@ -10,6 +10,7 @@ import {fileURLToPath} from "node:url";
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const validator = path.join(root, "scripts/validate-job.mjs");
 const temp = await fs.mkdtemp(path.join(os.tmpdir(), "telic-render-idempotency-"));
+const sourceRepository = "brandonlign/remotion-video";
 
 const run = async (request, name) => {
   const requestPath = path.join(temp, `${name}.json`);
@@ -26,37 +27,55 @@ try {
   const telic = await run({
     jobId: "telic-web-202608131318-0ed7a0",
     sourceSha: "26066aad9b3ba4911e3f739ffc0f4209d4d62ffa",
+    sourceRepository,
+    sourceIssueNumber: 401,
     revision: 2,
     mode: "render",
   }, "telic");
   assert.equal(telic.result.status, 0, telic.result.stderr);
   assert.match(telic.output, /^channel_id=telic$/m);
+  assert.match(telic.output, /^source_repository=brandonlign\/remotion-video$/m);
+  assert.match(telic.output, /^source_issue_number=401$/m);
   assert.match(telic.output, /^revision=2$/m);
   assert.match(telic.output, /^mode=render$/m);
   assert.match(
     telic.output,
-    /^request_key=telic-web-202608131318-0ed7a0-26066aad9b3ba4911e3f739ffc0f4209d4d62ffa-r2-render$/m,
+    /^request_key=telic-web-202608131318-0ed7a0-26066aad9b3ba4911e3f739ffc0f4209d4d62ffa-i401-r2-render$/m,
   );
 
   const coffee = await run({
     jobId: "coffee-short-20260814-1800",
     sourceSha: "26066aad9b3ba4911e3f739ffc0f4209d4d62ffa",
+    sourceRepository,
+    sourceIssueNumber: 402,
     revision: 1,
     mode: "render",
   }, "coffee");
   assert.equal(coffee.result.status, 0, coffee.result.stderr);
   assert.match(coffee.output, /^channel_id=coffee$/m);
+  assert.match(coffee.output, /^request_key=coffee-short-20260814-1800-26066aad9b3ba4911e3f739ffc0f4209d4d62ffa-i402-r1-render$/m);
 
   const unknown = await run({
     jobId: "unknown-short-20260814-1800",
     sourceSha: "26066aad9b3ba4911e3f739ffc0f4209d4d62ffa",
+    sourceRepository,
+    sourceIssueNumber: 403,
     revision: 1,
     mode: "render",
   }, "unknown");
   assert.notEqual(unknown.result.status, 0);
   assert.match(unknown.result.stderr, /Unsupported channel prefix/);
+
+  const missingAuthority = await run({
+    jobId: "telic-web-202608131318-0ed7a0",
+    sourceSha: "26066aad9b3ba4911e3f739ffc0f4209d4d62ffa",
+    revision: 3,
+    mode: "render",
+  }, "missing-authority");
+  assert.notEqual(missingAuthority.result.status, 0);
+  assert.match(missingAuthority.result.stderr, /Full render requests require explicit sourceRepository and sourceIssueNumber authority/);
 } finally {
   await fs.rm(temp, {recursive: true, force: true});
 }
 
-console.log("Render idempotency and channel identity tests passed.");
+console.log("Render idempotency, source authority, and channel identity tests passed.");
