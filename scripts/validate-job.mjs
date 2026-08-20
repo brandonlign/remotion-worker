@@ -4,9 +4,7 @@ import fs from "node:fs";
 import path from "node:path";
 
 const file = process.argv[2];
-if (!file) {
-  throw new Error("Usage: validate-job.mjs <request.json>");
-}
+if (!file) throw new Error("Usage: validate-job.mjs <request.json>");
 
 const request = JSON.parse(fs.readFileSync(file, "utf8"));
 const allowedKeys = new Set([
@@ -26,24 +24,11 @@ if (typeof request.jobId !== "string" || !/^[a-z0-9][a-z0-9-]{5,63}$/.test(reque
   throw new Error("jobId must be 6-64 lowercase letters, numbers, or hyphens.");
 }
 const channelId = request.jobId.split("-", 1)[0];
-if (!new Set(["telic", "coffee"]).has(channelId)) {
-  throw new Error(`Unsupported channel prefix in jobId: ${channelId}`);
-}
+if (!new Set(["telic", "coffee"]).has(channelId)) throw new Error(`Unsupported channel prefix in jobId: ${channelId}`);
 
 if (typeof request.sourceSha !== "string" || !/^[0-9a-f]{40}$/.test(request.sourceSha)) {
   throw new Error("sourceSha must be a complete lowercase 40-character commit SHA.");
 }
-if (typeof request.sourceRepository !== "string" || !/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(request.sourceRepository)) {
-  throw new Error("sourceRepository must be an explicit owner/name repository identity.");
-}
-if (!Number.isInteger(request.sourceIssueNumber) || request.sourceIssueNumber < 1 || request.sourceIssueNumber > 1_000_000_000) {
-  throw new Error("sourceIssueNumber must be a positive GitHub issue number.");
-}
-const expectedRepository = String(process.env.EXPECTED_SOURCE_REPOSITORY ?? "brandonlign/remotion-video").trim();
-if (request.sourceRepository !== expectedRepository) {
-  throw new Error(`sourceRepository ${request.sourceRepository} does not match configured source repository ${expectedRepository}.`);
-}
-
 if (!Number.isInteger(request.revision) || request.revision < 1 || request.revision > 1000) {
   throw new Error("revision must be an integer from 1 through 1000.");
 }
@@ -51,6 +36,27 @@ if (!Number.isInteger(request.revision) || request.revision < 1 || request.revis
 const mode = request.mode ?? "render";
 if (!new Set(["voice-prep", "render-sequence", "render"]).has(mode)) {
   throw new Error("mode must be voice-prep, render-sequence, or render.");
+}
+
+const hasSourceRepository = request.sourceRepository != null;
+const hasSourceIssueNumber = request.sourceIssueNumber != null;
+if (hasSourceRepository !== hasSourceIssueNumber) {
+  throw new Error("sourceRepository and sourceIssueNumber must be supplied together.");
+}
+if (mode === "render" && !hasSourceRepository) {
+  throw new Error("Full render requests require explicit sourceRepository and sourceIssueNumber authority.");
+}
+if (hasSourceRepository) {
+  if (typeof request.sourceRepository !== "string" || !/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(request.sourceRepository)) {
+    throw new Error("sourceRepository must be an explicit owner/name repository identity.");
+  }
+  if (!Number.isInteger(request.sourceIssueNumber) || request.sourceIssueNumber < 1 || request.sourceIssueNumber > 1_000_000_000) {
+    throw new Error("sourceIssueNumber must be a positive GitHub issue number.");
+  }
+  const expectedRepository = String(process.env.EXPECTED_SOURCE_REPOSITORY ?? "brandonlign/remotion-video").trim();
+  if (request.sourceRepository !== expectedRepository) {
+    throw new Error(`sourceRepository ${request.sourceRepository} does not match configured source repository ${expectedRepository}.`);
+  }
 }
 
 let sequenceIndex = "";
@@ -66,7 +72,7 @@ if (mode === "render-sequence") {
 const requestKey = [
   request.jobId,
   request.sourceSha,
-  `i${request.sourceIssueNumber}`,
+  hasSourceIssueNumber ? `i${request.sourceIssueNumber}` : null,
   `r${request.revision}`,
   mode,
   sequenceIndex === "" ? null : `s${sequenceIndex}`,
@@ -80,8 +86,8 @@ if (githubOutput) {
       `job_id=${request.jobId}`,
       `channel_id=${channelId}`,
       `source_sha=${request.sourceSha}`,
-      `source_repository=${request.sourceRepository}`,
-      `source_issue_number=${request.sourceIssueNumber}`,
+      `source_repository=${request.sourceRepository ?? ""}`,
+      `source_issue_number=${request.sourceIssueNumber ?? ""}`,
       `revision=${request.revision}`,
       `mode=${mode}`,
       `sequence_index=${sequenceIndex}`,
@@ -91,4 +97,5 @@ if (githubOutput) {
   );
 }
 
-console.log(`Validated ${path.basename(file)} for ${channelId} in ${mode} mode with explicit source issue #${request.sourceIssueNumber}.`);
+const authority = hasSourceIssueNumber ? ` source issue #${request.sourceIssueNumber}` : " legacy preparation authority";
+console.log(`Validated ${path.basename(file)} for ${channelId} in ${mode} mode with${authority}.`);
