@@ -1,6 +1,1 @@
-{
-  "jobId": "coffee-long-20260820-015308z-195a06",
-  "sourceSha": "837972ea06f4befcdcea528ba6fabbf2da1b127b",
-  "revision": 3,
-  "mode": "voice-prep"
-}
+{"jobId":"coffee-long-20260820-015308z-195a06","sourceSha":"c34044407809c8c2fcc1cf572a5718c8ce12ce61","revision":4,"mode":"render-sequence","sequenceIndex":0}
