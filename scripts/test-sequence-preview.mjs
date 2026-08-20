@@ -45,9 +45,15 @@ assert.match(sequenceRender, /create-review-assets\.sh" \\\n    "\$PREVIEW_VIDEO
 assert.match(sequenceRender, /PREVIEW_CHECK_COMMAND="npx eslint src && npx tsc --noEmit"/);
 assert.match(sequenceRender, /bash -o pipefail -c "\$PREVIEW_CHECK_COMMAND"/);
 assert.doesNotMatch(sequenceRender, /bash -o pipefail -c "\$CHECK_COMMAND"/);
-assert.match(fullRender, /FOCUSED_SOURCE_CHECK="npx eslint src && npx tsc --noEmit"/);
-assert.match(fullRender, /FINAL_CONTRACT_COMMAND="npm run long:contract:test"/);
-assert.match(fullRender, /FINAL_CONTRACT_COMMAND="npm run custom:contract:test"/);
+
+// Full renders have one deterministic validation boundary. Long form invokes
+// the source repository's aggregated preflight so schema/audio/packaging/lint
+// failures are reported together before the first Remotion frame is rendered.
+assert.match(fullRender, /FINAL_VALIDATION_COMMAND="npx eslint src && npx tsc --noEmit && npm run custom:contract:test"/);
+assert.match(fullRender, /FINAL_VALIDATION_COMMAND="npm run long:preflight"/);
+assert.match(fullRender, /bash -o pipefail -c "\$FINAL_VALIDATION_COMMAND"/);
+assert.doesNotMatch(fullRender, /FOCUSED_SOURCE_CHECK=/);
+assert.doesNotMatch(fullRender, /FINAL_CONTRACT_COMMAND=/);
 assert.doesNotMatch(fullRender, /bash -o pipefail -c "\$CHECK_COMMAND"/);
 assert.doesNotMatch(fullRender, /PREVIEW_CRF|PREVIEW_SCALE|PREVIEW_CHECK_COMMAND/);
 
@@ -60,4 +66,4 @@ assert.match(sequenceRender, /\$\{GITHUB_WORKFLOW:-\}" = "Render private Remotio
 assert.match(sequenceRender, /node scripts\/autopilot\/prepare-long-window\.mjs/);
 assert.match(sequenceRender, /bash -o pipefail -c "\$PREPARE_COMMAND"/);
 
-console.log("Dynamic long-form sequence preview range, quality, bounded review derivatives, worker-owned prepare, and audio-fast-path tests passed.");
+console.log("Dynamic long-form sequence preview range, quality, bounded review derivatives, worker-owned prepare, and aggregated full-render preflight tests passed.");
