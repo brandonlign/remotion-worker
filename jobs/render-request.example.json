@@ -1,6 +1,8 @@
 {
   "jobId": "telic-render-example-001",
   "sourceSha": "0000000000000000000000000000000000000000",
+  "sourceRepository": "brandonlign/remotion-video",
+  "sourceIssueNumber": 1,
   "revision": 1,
   "mode": "voice-prep"
 }
