@@ -39,8 +39,8 @@ if (typeof request.sourceRepository !== "string" || !/^[A-Za-z0-9_.-]+\/[A-Za-z0
 if (!Number.isInteger(request.sourceIssueNumber) || request.sourceIssueNumber < 1 || request.sourceIssueNumber > 1_000_000_000) {
   throw new Error("sourceIssueNumber must be a positive GitHub issue number.");
 }
-const expectedRepository = String(process.env.EXPECTED_SOURCE_REPOSITORY ?? "").trim();
-if (expectedRepository && request.sourceRepository !== expectedRepository) {
+const expectedRepository = String(process.env.EXPECTED_SOURCE_REPOSITORY ?? "brandonlign/remotion-video").trim();
+if (request.sourceRepository !== expectedRepository) {
   throw new Error(`sourceRepository ${request.sourceRepository} does not match configured source repository ${expectedRepository}.`);
 }
 
@@ -63,9 +63,6 @@ if (mode === "render-sequence") {
   throw new Error("sequenceIndex is only valid for render-sequence requests.");
 }
 
-// Idempotency is bound to the exact source authority as well as the render
-// identity. This prevents a request copied to another coordination issue from
-// being mistaken for the same durable worker handoff.
 const requestKey = [
   request.jobId,
   request.sourceSha,
