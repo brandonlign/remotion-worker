@@ -30,19 +30,15 @@ NODE
 )"
 
 PREPARE_COMMAND="$CONFIGURED_PREPARE_COMMAND"
+FINAL_VALIDATION_COMMAND="npx eslint src && npx tsc --noEmit && npm run custom:contract:test"
 if [ "$JOB_FORMAT" = "long" ]; then
   PREPARE_COMMAND="npm run long:prepare"
+  FINAL_VALIDATION_COMMAND="npm run long:preflight"
 fi
 
 FINAL_VIDEO="$OUTPUT_DIR/${OUTPUT_NAME}.mp4"
 THUMBNAIL_FILE="$OUTPUT_DIR/thumbnail.png"
 REMOTION_BIN="$SOURCE_DIR/node_modules/.bin/remotion"
-FOCUSED_SOURCE_CHECK="npx eslint src && npx tsc --noEmit"
-if [ "$JOB_FORMAT" = "long" ]; then
-  FINAL_CONTRACT_COMMAND="npm run long:contract:test"
-else
-  FINAL_CONTRACT_COMMAND="npm run custom:contract:test"
-fi
 
 REVIEW_FRAME_LIMIT="$(node - "$SOURCE_DIR/automation/current/job.json" "$SOURCE_DIR/automation/config.json" <<'NODE'
 const fs = require('node:fs');
@@ -59,9 +55,6 @@ NODE
 node "$WORKER_ROOT/scripts/validate-private-render-contract.mjs" \
   "$SOURCE_DIR" render "$COMPOSITION_ID" "$THUMBNAIL_COMPOSITION_ID" "$CONFIGURED_PREPARE_COMMAND" "$CHECK_COMMAND"
 
-# Metadata is cheap and independent of rendered pixels. Reject malformed YouTube
-# handoff data before dependency setup, asset preparation, or Remotion rendering so a
-# missing chapter/schema field can never waste a full long-form render again.
 node "$WORKER_ROOT/scripts/validate-youtube-metadata.mjs" \
   "$SOURCE_DIR/automation/current/youtube.json" \
   "$JOB_ID"
@@ -69,8 +62,10 @@ node "$WORKER_ROOT/scripts/validate-youtube-metadata.mjs" \
 install_private_dependencies "$INSTALL_COMMAND"
 cd "$SOURCE_DIR"
 bash -o pipefail -c "$PREPARE_COMMAND"
-bash -o pipefail -c "$FOCUSED_SOURCE_CHECK"
-bash -o pipefail -c "$FINAL_CONTRACT_COMMAND"
+
+# Hard render boundary. Long form reports every deterministic source defect in
+# one preflight before the first expensive Remotion frame is rendered.
+bash -o pipefail -c "$FINAL_VALIDATION_COMMAND"
 
 if [ ! -x "$REMOTION_BIN" ]; then
   stage_fail "The Remotion CLI was not installed by the configured install command." 69
@@ -86,11 +81,6 @@ if [ -n "$THUMBNAIL_COMPOSITION_ID" ]; then
     --frame=0 --log=error
 fi
 
-# The full review video + chronological frames/contact sheet are the default
-# review package. Exact semantic still extraction remains available through
-# create-review-moments.mjs only when a reviewer has a concrete crop/readability/
-# sync question; do not decode every full render again just because moments were
-# declared in composition.json.
 bash "$WORKER_ROOT/scripts/create-review-assets.sh" "$FINAL_VIDEO" "$OUTPUT_DIR" "$REVIEW_FRAME_LIMIT"
 
 for artifact in automation/current/alignment.json automation/current/audio-runtime.json automation/current/composition.json; do
@@ -108,6 +98,6 @@ fs.writeFileSync(outputFile, `${JSON.stringify({
 NODE
 
 node "$WORKER_ROOT/scripts/create-controller-handoff.mjs" \
-  "$OUTPUT_DIR" "$SOURCE_DIR/automation/current/youtube.json" "$JOB_ID" "$SOURCE_SHA"
+  "$OUTPUT_DIR" "$SOURCE_DIR/automation/current/youtube.json" "$REQUEST_FILE"
 
 write_checksums "$OUTPUT_DIR"

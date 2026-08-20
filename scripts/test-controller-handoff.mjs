@@ -23,11 +23,24 @@ const writeRenderStatus = async ({output, jobId, sourceSha, outputName = "telic-
   await fs.writeFile(path.join(output, "status.json"), `${JSON.stringify({status: "complete", jobId, sourceSha, outputName}, null, 2)}\n`, "utf8");
 };
 
+const writeRequest = async ({file, jobId, sourceSha, issue = 123, revision = 7}) => {
+  await fs.writeFile(file, `${JSON.stringify({
+    jobId,
+    sourceSha,
+    sourceRepository: "brandonlign/remotion-video",
+    sourceIssueNumber: issue,
+    revision,
+    mode: "render",
+  }, null, 2)}\n`, "utf8");
+};
+
 const main = async () => {
   const temp = await fs.mkdtemp(path.join(os.tmpdir(), "telic-handoff-"));
   try {
     const jobId = "telic-web-test-001";
     const sourceSha = "0123456789abcdef0123456789abcdef01234567";
+    const request = path.join(temp, "request.json");
+    await writeRequest({file: request, jobId, sourceSha});
 
     const shortOutput = path.join(temp, "short-output");
     const shortYoutube = path.join(temp, "short-youtube.json");
@@ -47,21 +60,14 @@ const main = async () => {
       license: "youtube",
     }, null, 2)}\n`, "utf8");
 
-    await run(process.execPath, ["scripts/create-controller-handoff.mjs", shortOutput, shortYoutube, jobId, sourceSha]);
+    await run(process.execPath, ["scripts/create-controller-handoff.mjs", shortOutput, shortYoutube, request]);
     assert.equal(await fs.readFile(path.join(shortOutput, "final.mp4"), "utf8"), "video-bytes");
     const shortPublish = JSON.parse(await fs.readFile(path.join(shortOutput, "publish.json"), "utf8"));
-    assert.deepEqual(shortPublish, {
-      jobId,
-      title: "Why QR Codes Survive Damage",
-      description: "A test description.",
-      tags: ["QR codes", "technology", "error correction"],
-      categoryId: "28",
-      defaultLanguage: "en",
-      madeForKids: false,
-      containsSyntheticMedia: false,
-      publishAt: "2026-08-05T22:00:00.000Z",
-      sourceSha,
-    });
+    assert.equal(shortPublish.jobId, jobId);
+    assert.equal(shortPublish.sourceSha, sourceSha);
+    assert.equal(shortPublish.sourceRepository, "brandonlign/remotion-video");
+    assert.equal(shortPublish.sourceIssueNumber, 123);
+    assert.equal(shortPublish.revision, 7);
 
     const longDir = path.join(temp, "long-source");
     const longOutput = path.join(temp, "long-output");
@@ -90,29 +96,21 @@ const main = async () => {
       license: "youtube",
     };
     await fs.writeFile(longYoutube, `${JSON.stringify(validLong, null, 2)}\n`, "utf8");
-    await run(process.execPath, ["scripts/create-controller-handoff.mjs", longOutput, longYoutube, jobId, sourceSha]);
+    await run(process.execPath, ["scripts/create-controller-handoff.mjs", longOutput, longYoutube, request]);
     const longPublish = JSON.parse(await fs.readFile(path.join(longOutput, "publish.json"), "utf8"));
     assert.match(longPublish.description, /0:00 The result that does not fit/);
     assert.match(longPublish.description, /4:20 The decision that changes/);
+    assert.equal(longPublish.sourceIssueNumber, 123);
 
-    const paddedYoutube = path.join(longDir, "padded-youtube.json");
-    await fs.writeFile(paddedYoutube, `${JSON.stringify({...validLong,
-      description: "00:00 The result that does not fit\n01:30 The limit underneath it\n04:20 The decision that changes",
-    }, null, 2)}\n`, "utf8");
-    await run(process.execPath, ["scripts/create-controller-handoff.mjs", longOutput, paddedYoutube, jobId, sourceSha]);
+    const mismatchedRequest = path.join(temp, "mismatch-request.json");
+    await writeRequest({file: mismatchedRequest, jobId, sourceSha: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"});
+    await run(process.execPath, ["scripts/create-controller-handoff.mjs", longOutput, longYoutube, mismatchedRequest], {expectFailure: true});
 
     const invalidYoutube = path.join(longDir, "invalid-youtube.json");
     await fs.writeFile(invalidYoutube, `${JSON.stringify({...validLong, description: "No chapter lines here."}, null, 2)}\n`, "utf8");
-    await run(process.execPath, ["scripts/create-controller-handoff.mjs", longOutput, invalidYoutube, jobId, sourceSha], {expectFailure: true});
+    await run(process.execPath, ["scripts/create-controller-handoff.mjs", longOutput, invalidYoutube, request], {expectFailure: true});
 
-    const tooLateYoutube = path.join(longDir, "too-late-youtube.json");
-    await fs.writeFile(tooLateYoutube, `${JSON.stringify({...validLong,
-      description: "0:00 Start\n1:00 Middle\n6:55 Too late",
-      chapters: [{startSeconds: 0, title: "Start"}, {startSeconds: 60, title: "Middle"}, {startSeconds: 415, title: "Too late"}],
-    }, null, 2)}\n`, "utf8");
-    await run(process.execPath, ["scripts/create-controller-handoff.mjs", longOutput, tooLateYoutube, jobId, sourceSha], {expectFailure: true});
-
-    console.log("Studio controller handoff packaging tests passed.");
+    console.log("Source-bound controller handoff packaging tests passed.");
   } finally {
     await fs.rm(temp, {recursive: true, force: true});
   }

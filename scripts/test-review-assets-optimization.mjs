@@ -53,7 +53,6 @@ assert.match(fullRender, /config\?\.longForm\?\.quality\?\.maximumFrames/);
 assert.match(fullRender, /config\?\.quality\?\.maximumFrames/);
 assert.match(fullRender, /create-review-assets\.sh" "\$FINAL_VIDEO" "\$OUTPUT_DIR" "\$REVIEW_FRAME_LIMIT"/);
 assert.doesNotMatch(fullRender, /node "\$WORKER_ROOT\/scripts\/create-review-moments\.mjs"/);
-assert.match(fullRender, /Exact semantic still extraction remains available/);
 
 const semanticMoments = fs.readFileSync(new URL("./create-review-moments.mjs", import.meta.url), "utf8");
 assert.match(semanticMoments, /resolveReviewMoments/);
