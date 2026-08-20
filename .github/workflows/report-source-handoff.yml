@@ -1,0 +1,52 @@
+name: Report worker handoff to source issue
+
+on:
+  workflow_run:
+    workflows:
+      - Render private Remotion source
+      - Finalize existing private render
+    types: [completed]
+
+permissions:
+  contents: read
+
+jobs:
+  report:
+    if: >-
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.head_repository.full_name == github.repository &&
+      startsWith(github.event.workflow_run.head_branch, 'render/')
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Check out exact successful worker revision
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+          fetch-depth: 1
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Report successful full-render handoff
+        if: github.event.workflow_run.name == 'Render private Remotion source'
+        env:
+          SOURCE_REPOSITORY: ${{ secrets.SOURCE_REPOSITORY }}
+          SOURCE_REPO_TOKEN: ${{ secrets.SOURCE_REPO_TOKEN }}
+          WORKER_RUN_ID: ${{ github.event.workflow_run.id }}
+          WORKER_RUN_URL: ${{ github.event.workflow_run.html_url }}
+          WORKER_HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: node scripts/report-source-handoff.mjs jobs/request.json render
+
+      - name: Report successful finalize handoff
+        if: github.event.workflow_run.name == 'Finalize existing private render'
+        env:
+          SOURCE_REPOSITORY: ${{ secrets.SOURCE_REPOSITORY }}
+          SOURCE_REPO_TOKEN: ${{ secrets.SOURCE_REPO_TOKEN }}
+          WORKER_RUN_ID: ${{ github.event.workflow_run.id }}
+          WORKER_RUN_URL: ${{ github.event.workflow_run.html_url }}
+          WORKER_HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: node scripts/report-source-handoff.mjs jobs/finalize-request.json finalize
