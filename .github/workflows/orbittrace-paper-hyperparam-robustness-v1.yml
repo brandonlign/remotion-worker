@@ -1,0 +1,89 @@
+name: OrbitTrace paper hyperparameter robustness v1
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - '.github/workflows/orbittrace-paper-hyperparam-robustness-v1.yml'
+      - 'orbittrace-paper-hyperparam-robustness-v1/**'
+
+permissions:
+  contents: read
+  issues: write
+  pull-requests: write
+
+jobs:
+  robustness:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.9'
+
+      - name: Fetch frozen analysis source from runner
+        env:
+          SRC: https://raw.githubusercontent.com/brandonlign/runner/499828f9e2b9b6f9ad2e2ceaa207a43beec82fd4/orbittrace_paper_hyperparam_robustness_v1
+        run: |
+          set -euo pipefail
+          mkdir -p orbittrace_paper_hyperparam_robustness_v1
+          curl -L --fail --retry 3 "$SRC/PROTOCOL.md" -o orbittrace_paper_hyperparam_robustness_v1/PROTOCOL.md
+          curl -L --fail --retry 3 "$SRC/canonical_2025_2026_ids.tsv" -o orbittrace_paper_hyperparam_robustness_v1/canonical_2025_2026_ids.tsv
+          curl -L --fail --retry 3 "$SRC/run.py" -o orbittrace_paper_hyperparam_robustness_v1/run.py
+          test "$(wc -l < orbittrace_paper_hyperparam_robustness_v1/canonical_2025_2026_ids.tsv)" -eq 63
+          test "$(cut -f2 orbittrace_paper_hyperparam_robustness_v1/canonical_2025_2026_ids.tsv | sort -u | wc -l)" -eq 63
+          python -m py_compile orbittrace_paper_hyperparam_robustness_v1/run.py
+
+      - name: Install frozen scientific dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install \
+            gmn-python-api==0.0.13 \
+            numpy==1.23.5 \
+            pandas==1.3.5 \
+            scikit-learn==1.3.2 \
+            requests==2.32.5
+
+      - name: Execute frozen 41-setting sensitivity analysis
+        run: |
+          set -euo pipefail
+          python orbittrace_paper_hyperparam_robustness_v1/run.py
+
+      - name: Record execution provenance
+        if: always()
+        run: |
+          mkdir -p orbittrace_paper_hyperparam_robustness_v1/output
+          git rev-parse HEAD > orbittrace_paper_hyperparam_robustness_v1/output/worker_commit.txt
+          python --version > orbittrace_paper_hyperparam_robustness_v1/output/python_version.txt
+          python -m pip freeze > orbittrace_paper_hyperparam_robustness_v1/output/environment.txt
+          sha256sum orbittrace_paper_hyperparam_robustness_v1/PROTOCOL.md orbittrace_paper_hyperparam_robustness_v1/canonical_2025_2026_ids.tsv orbittrace_paper_hyperparam_robustness_v1/run.py > orbittrace_paper_hyperparam_robustness_v1/output/source_sha256.txt 2>/dev/null || true
+
+      - name: Upload complete result
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: orbittrace-paper-hyperparam-robustness-v1
+          path: orbittrace_paper_hyperparam_robustness_v1/output
+          if-no-files-found: error
+
+      - name: Report success
+        if: success()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          PR: ${{ github.event.pull_request.number }}
+        run: |
+          set -euo pipefail
+          BODY="$(cat orbittrace_paper_hyperparam_robustness_v1/output/RESULT.md)"
+          gh api "repos/$GH_REPO/issues/$PR/comments" -f body="$BODY"
+
+      - name: Report failure
+        if: failure()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          PR: ${{ github.event.pull_request.number }}
+        run: |
+          gh api "repos/$GH_REPO/issues/$PR/comments" -f body='ORBITTRACE_HYPERPARAM_V1_FAILED — inspect the workflow job log; do not alter frozen scientific settings.'
