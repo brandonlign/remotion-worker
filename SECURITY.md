@@ -25,14 +25,20 @@ Private source code is checked out only on the temporary GitHub-hosted runner. R
 
 ## Trigger restrictions
 
-The render job runs only when all of these are true:
+The public render/finalize/preview jobs run only after the secret-free `Worker CI`
+workflow has passed and all of these are true:
 
-- the event is a pull request;
+- the triggering workflow run came from a pull request;
 - the pull request branch is inside this repository, not a fork;
 - the branch name starts with `render/`;
-- `jobs/request.json` changed.
+- the trusted main-branch workflow reads only the request JSON from the exact
+  pull-request diff;
+- `jobs/request.json` (or the explicitly selected finalize/preview request)
+  changed in the allowed request-only scope.
 
-Do not use `pull_request_target` for this workflow.
+The secret-bearing workflows run from `workflow_run` on trusted worker code.
+They never check out or execute pull-request worker code. Do not use
+`pull_request_target` for this workflow.
 
 ## Trusted-source assumption
 

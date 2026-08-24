@@ -29,29 +29,7 @@ case "$DELIVERY_KIND" in
   *) rclone_fail "Delivery kind must be success or diagnostics." 64 ;;
 esac
 prepare_rclone_config "The Drive upload secret is not configured."
-
-if ! python3 - "$RCLONE_CONFIG_FILE" <<'PY'
-import configparser
-import re
-import sys
-
-parser = configparser.RawConfigParser()
-parser.read(sys.argv[1])
-raw = parser.get("gdrive", "scope", fallback="").strip().strip("\"'")
-tokens = {token for token in re.split(r"[\s,]+", raw.replace("\\,", ",")) if token}
-write_scopes = {
-    "drive.file",
-    "https://www.googleapis.com/auth/drive.file",
-    "drive",
-    "https://www.googleapis.com/auth/drive",
-}
-if not tokens.intersection(write_scopes):
-    print(f"The gdrive remote has no supported write scope: {raw!r}", file=sys.stderr)
-    raise SystemExit(65)
-PY
-then
-  exit 65
-fi
+validate_drive_file_scope
 
 # Storage routing is derived from the immutable channel prefix in the durable job
 # ID. The worker never accepts an arbitrary Drive path from a public render PR.

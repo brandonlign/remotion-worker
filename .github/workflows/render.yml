@@ -1,30 +1,34 @@
 name: Render private Remotion source
 
 on:
-  pull_request:
-    types: [opened, synchronize, reopened]
-    paths:
-      - jobs/request.json
+  workflow_run:
+    workflows: [Worker CI]
+    types: [completed]
 
 permissions:
-  contents: write
-  pull-requests: write
+  contents: read
+  pull-requests: read
 
 concurrency:
-  group: remotion-render-${{ github.event.pull_request.number }}
+  group: remotion-render-${{ github.event.workflow_run.head_branch }}
   cancel-in-progress: true
 
 jobs:
   render:
     if: >-
-      github.event.pull_request.head.repo.full_name == github.repository &&
-      startsWith(github.head_ref, 'render/')
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'pull_request' &&
+      github.event.workflow_run.head_repository.full_name == github.repository &&
+      startsWith(github.event.workflow_run.head_branch, 'render/')
     runs-on: ubuntu-latest
     timeout-minutes: 90
 
     steps:
       - name: Check out worker
         uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 1
 
       - name: Set up Node
         uses: actions/setup-node@v4
@@ -33,7 +37,18 @@ jobs:
 
       - name: Validate render request
         id: request
-        run: node scripts/validate-job.mjs jobs/request.json
+        env:
+          WORKFLOW_KIND: render
+          HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+          BASE_SHA: ${{ github.event.workflow_run.pull_requests[0].base.sha }}
+          HEAD_REF: ${{ github.event.workflow_run.head_branch }}
+        run: |
+          node scripts/prepare-trusted-request.mjs
+          if [ "${{ steps.request.outputs.skip }}" != "true" ]; then
+            node scripts/validate-job.mjs jobs/request.json
+          else
+            echo "This render workflow run is inert because the triggering commit is finalize-only."
+          fi
 
       # A successful full render is keyed by job + exact private source SHA +
       # explicit revision. This sentinel contains no private media/source data.
@@ -42,18 +57,18 @@ jobs:
       # expensive private checkout/render/Drive path entirely.
       - name: Restore successful full-render identity
         id: render_dedupe
-        if: steps.request.outputs.mode == 'render'
+        if: steps.request.outputs.skip != 'true' && steps.request.outputs.mode == 'render'
         uses: actions/cache/restore@v4
         with:
           path: ${{ runner.temp }}/telic-render-idempotency
           key: telic-render-success-${{ steps.request.outputs.request_key }}
 
       - name: Report duplicate full-render no-op
-        if: steps.request.outputs.mode == 'render' && steps.render_dedupe.outputs.cache-hit == 'true'
+        if: steps.request.outputs.skip != 'true' && steps.request.outputs.mode == 'render' && steps.render_dedupe.outputs.cache-hit == 'true'
         run: echo "This exact successful full-render identity already exists; duplicate dispatch is a no-op."
 
       - name: Cache forced-alignment runtime
-        if: steps.request.outputs.mode == 'voice-prep'
+        if: steps.request.outputs.skip != 'true' && steps.request.outputs.mode == 'voice-prep'
         uses: actions/cache@v4
         with:
           path: |
@@ -63,7 +78,7 @@ jobs:
           key: telic-whisperx-3.8.6-en-${{ runner.os }}-${{ runner.arch }}-py3
 
       - name: Check out private source
-        if: steps.request.outputs.mode != 'render' || steps.render_dedupe.outputs.cache-hit != 'true'
+        if: steps.request.outputs.skip != 'true' && (steps.request.outputs.mode != 'render' || steps.render_dedupe.outputs.cache-hit != 'true')
         uses: actions/checkout@v4
         with:
           repository: ${{ secrets.SOURCE_REPOSITORY }}
@@ -77,6 +92,7 @@ jobs:
       # restore npm/Remotion dependencies for that stage.
       - name: Cache npm package downloads
         if: >-
+          steps.request.outputs.skip != 'true' &&
           steps.request.outputs.mode != 'voice-prep' &&
           (steps.request.outputs.mode != 'render' || steps.render_dedupe.outputs.cache-hit != 'true')
         uses: actions/cache@v4
@@ -89,6 +105,7 @@ jobs:
       - name: Restore verified installed Node dependencies
         id: node_dependencies_cache
         if: >-
+          steps.request.outputs.skip != 'true' &&
           steps.request.outputs.mode != 'voice-prep' &&
           (steps.request.outputs.mode != 'render' || steps.render_dedupe.outputs.cache-hit != 'true')
         uses: actions/cache/restore@v4
@@ -97,7 +114,7 @@ jobs:
           key: telic-remotion-node-modules-v1-${{ runner.os }}-${{ runner.arch }}-node22-${{ hashFiles('private-source/package-lock.json') }}
 
       - name: Cache public rclone binary
-        if: steps.request.outputs.mode != 'render' || steps.render_dedupe.outputs.cache-hit != 'true'
+        if: steps.request.outputs.skip != 'true' && (steps.request.outputs.mode != 'render' || steps.render_dedupe.outputs.cache-hit != 'true')
         uses: actions/cache@v4
         with:
           path: ~/.cache/telic-tools/rclone-v1.75.0
@@ -105,16 +122,17 @@ jobs:
 
       - name: Cache public full FFmpeg tools
         if: >-
-          steps.request.outputs.mode == 'voice-prep' ||
+          steps.request.outputs.skip != 'true' &&
+          (steps.request.outputs.mode == 'voice-prep' ||
           steps.request.outputs.mode == 'render-sequence' ||
-          (steps.request.outputs.mode == 'render' && steps.render_dedupe.outputs.cache-hit != 'true')
+          (steps.request.outputs.mode == 'render' && steps.render_dedupe.outputs.cache-hit != 'true'))
         uses: actions/cache@v4
         with:
           path: ~/.cache/telic-tools/ffmpeg-n8.1-btbn-20260813
           key: telic-ffmpeg-n8.1-btbn-20260813-${{ runner.os }}-${{ runner.arch }}-py3
 
       - name: Ensure required system tools
-        if: steps.request.outputs.mode != 'render' || steps.render_dedupe.outputs.cache-hit != 'true'
+        if: steps.request.outputs.skip != 'true' && (steps.request.outputs.mode != 'render' || steps.render_dedupe.outputs.cache-hit != 'true')
         shell: bash
         env:
           RENDER_MODE: ${{ steps.request.outputs.mode }}
@@ -151,7 +169,7 @@ jobs:
 
       - name: Prepare locked voiceover and timing
         id: voice
-        if: steps.request.outputs.mode == 'voice-prep'
+        if: steps.request.outputs.skip != 'true' && steps.request.outputs.mode == 'voice-prep'
         shell: bash
         env:
           JOB_ID: ${{ steps.request.outputs.job_id }}
@@ -183,8 +201,9 @@ jobs:
       - name: Restore locked voiceover and timing
         id: audio_restore
         if: >-
-          steps.request.outputs.mode == 'render-sequence' ||
-          (steps.request.outputs.mode == 'render' && steps.render_dedupe.outputs.cache-hit != 'true')
+          steps.request.outputs.skip != 'true' &&
+          (steps.request.outputs.mode == 'render-sequence' ||
+          (steps.request.outputs.mode == 'render' && steps.render_dedupe.outputs.cache-hit != 'true'))
         shell: bash
         env:
           RCLONE_CONFIG_B64: ${{ secrets.RCLONE_CONFIG_B64 }}
@@ -211,6 +230,7 @@ jobs:
       - name: Render one private long-form sequence preview
         id: sequence
         if: >-
+          steps.request.outputs.skip != 'true' &&
           steps.request.outputs.mode == 'render-sequence' &&
           steps.audio_restore.outputs.ok == 'true'
         shell: bash
@@ -242,6 +262,7 @@ jobs:
       - name: Render custom composition and build private review package
         id: render
         if: >-
+          steps.request.outputs.skip != 'true' &&
           steps.request.outputs.mode == 'render' &&
           steps.render_dedupe.outputs.cache-hit != 'true' &&
           steps.audio_restore.outputs.ok == 'true'
@@ -272,6 +293,7 @@ jobs:
       - name: Run deterministic media quality gate
         id: quality
         if: >-
+          steps.request.outputs.skip != 'true' &&
           steps.request.outputs.mode == 'render' &&
           steps.render_dedupe.outputs.cache-hit != 'true' &&
           steps.render.outputs.ok == 'true'
@@ -303,6 +325,7 @@ jobs:
       - name: Refresh private checksums
         if: >-
           always() &&
+          steps.request.outputs.skip != 'true' &&
           (steps.request.outputs.mode != 'render' || steps.render_dedupe.outputs.cache-hit != 'true')
         shell: bash
         run: |
@@ -315,21 +338,18 @@ jobs:
       - name: Deliver successful private package to Google Drive
         id: drive
         if: >-
+          steps.request.outputs.skip != 'true' &&
           (
-            steps.request.outputs.mode == 'voice-prep' &&
-            steps.voice.outputs.ok == 'true'
-          ) ||
-          (
-            steps.request.outputs.mode == 'render-sequence' &&
+            (steps.request.outputs.mode == 'voice-prep' &&
+            steps.voice.outputs.ok == 'true') ||
+            (steps.request.outputs.mode == 'render-sequence' &&
             steps.audio_restore.outputs.ok == 'true' &&
-            steps.sequence.outputs.ok == 'true'
-          ) ||
-          (
-            steps.request.outputs.mode == 'render' &&
+            steps.sequence.outputs.ok == 'true') ||
+            (steps.request.outputs.mode == 'render' &&
             steps.render_dedupe.outputs.cache-hit != 'true' &&
             steps.audio_restore.outputs.ok == 'true' &&
             steps.render.outputs.ok == 'true' &&
-            steps.quality.outputs.ok == 'true'
+            steps.quality.outputs.ok == 'true')
           )
         shell: bash
         env:
@@ -353,6 +373,7 @@ jobs:
         id: diagnostic_drive
         if: >-
           always() &&
+          steps.request.outputs.skip != 'true' &&
           (
             (
               steps.request.outputs.mode == 'voice-prep' &&
@@ -397,6 +418,7 @@ jobs:
 
       - name: Create successful full-render sentinel
         if: >-
+          steps.request.outputs.skip != 'true' &&
           steps.request.outputs.mode == 'render' &&
           steps.render_dedupe.outputs.cache-hit != 'true' &&
           steps.audio_restore.outputs.ok == 'true' &&
@@ -410,6 +432,7 @@ jobs:
 
       - name: Save successful full-render identity
         if: >-
+          steps.request.outputs.skip != 'true' &&
           steps.request.outputs.mode == 'render' &&
           steps.render_dedupe.outputs.cache-hit != 'true' &&
           steps.audio_restore.outputs.ok == 'true' &&
@@ -424,6 +447,7 @@ jobs:
       - name: Save verified installed Node dependencies
         if: >-
           always() &&
+          steps.request.outputs.skip != 'true' &&
           steps.request.outputs.mode != 'voice-prep' &&
           steps.node_dependencies_cache.outputs.cache-hit != 'true' &&
           (
@@ -446,6 +470,7 @@ jobs:
       - name: Fail workflow when the requested stage failed
         if: >-
           always() &&
+          steps.request.outputs.skip != 'true' &&
           (
             (
               steps.request.outputs.mode == 'voice-prep' &&

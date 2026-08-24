@@ -75,7 +75,18 @@ assert.equal(rows.length, 2);
 assert.match(rows[0], /Coffee Track 01\.mp3/);
 assert.match(rows[1], /Cup Set Down\.wav/);
 
+// Approved private-library records are self-identifying and remain restorable
+// for channel manifests that predate qualityVersion 2. A legacy record that
+// does not declare an approved private library must still be ignored.
 await fs.writeFile(input, JSON.stringify({qualityVersion: 1, music}));
+result = run();
+assert.equal(result.status, 0, result.stderr);
+assert.equal(result.stdout.trim().split("\t").length, 4);
+
+await fs.writeFile(input, JSON.stringify({
+  qualityVersion: 1,
+  music: {...music, library: "legacy-library"},
+}));
 result = run();
 assert.equal(result.status, 0, result.stderr);
 assert.equal(result.stdout, "");
@@ -83,7 +94,7 @@ assert.equal(result.stdout, "");
 await fs.writeFile(input, JSON.stringify({qualityVersion: 2, music: {...music, library: "unapproved-library"}}));
 result = run();
 assert.notEqual(result.status, 0);
-assert.match(result.stderr, /approved channel-owned library/);
+assert.match(result.stderr, /approved library/);
 
 await fs.writeFile(input, JSON.stringify({qualityVersion: 2, music: {...music, assetPath: "../escape.mp3"}}));
 result = run();
@@ -93,7 +104,7 @@ assert.match(result.stderr, /unsafe assetPath/);
 await fs.writeFile(input, JSON.stringify({qualityVersion: 2, soundEffects: [{...coffeeSfx, library: "unapproved-library"}]}));
 result = run();
 assert.notEqual(result.status, 0);
-assert.match(result.stderr, /approved channel-owned library/);
+assert.match(result.stderr, /approved channel or Universal SFX library/);
 
 await fs.writeFile(input, JSON.stringify({qualityVersion: 2, soundEffects: [{...coffeeSfx, assetPath: "public/assets/current/coffee-sfx-cup.mp3"}]}));
 result = run();

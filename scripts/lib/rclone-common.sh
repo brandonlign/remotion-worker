@@ -38,6 +38,31 @@ prepare_rclone_config() {
   fi
 }
 
+validate_drive_file_scope() {
+  python3 - "$RCLONE_CONFIG_FILE" <<'PY'
+import configparser
+import re
+import sys
+
+config_path = sys.argv[1]
+parser = configparser.RawConfigParser()
+parser.read(config_path)
+raw = parser.get("gdrive", "scope", fallback="").strip().strip("\"'")
+tokens = {
+    token
+    for token in re.split(r"[\s,]+", raw.replace("\\,", ","))
+    if token
+}
+if tokens not in ({"drive.file"}, {"https://www.googleapis.com/auth/drive.file"}):
+    print(
+        "The gdrive remote must use exactly the drive.file OAuth scope; "
+        f"configured scopes: {raw!r}",
+        file=sys.stderr,
+    )
+    raise SystemExit(65)
+PY
+}
+
 resolve_unique_folder_id() {
   local expected_name="$1"
   rclone lsjson gdrive: \

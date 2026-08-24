@@ -43,14 +43,17 @@ Choose:
 
 Do not choose the default full-access `drive` scope. The upload script checks the configuration and refuses to run unless the scope is exactly `drive.file`.
 
-The existing browser-created Telic folder cannot be used with this restricted scope because rclone did not create it. On the first successful upload, the worker automatically creates a visible folder named `Telic-Renders` in your Drive and places each job in a separate subfolder.
+The existing browser-created render folders cannot be used with this restricted scope unless they were created by this rclone remote. The worker routes jobs by their immutable channel prefix and creates the required path on first upload:
+
+- Telic: `YouTube/Telic/Telic-Renders/<jobId>`
+- Coffee: `YouTube/Coffee/Renders/<jobId>`
 
 Confirm the remote is restricted and working:
 
 ```bash
 rclone config show gdrive \
   --config "$HOME/.config/rclone/remotion-worker.conf"
-rclone mkdir gdrive:Telic-Renders \
+rclone mkdir gdrive:YouTube/Telic/Telic-Renders \
   --config "$HOME/.config/rclone/remotion-worker.conf"
 rclone lsd gdrive: \
   --config "$HOME/.config/rclone/remotion-worker.conf"
@@ -109,7 +112,7 @@ The worker repository therefore uses these secrets:
 
 ## 5. Submit a render request
 
-Create an internal branch named `render/<opaque-job-id>`, update `jobs/request.json`, and open a pull request into `main`.
+Create an internal branch named `render/<opaque-job-id>`, update `jobs/request.json`, and open a pull request into `main`. `Worker CI` validates the request-only diff without secrets; after it passes, the trusted `workflow_run` render job checks out worker code from `main` and extracts only the request JSON from the exact PR commit.
 
 Example:
 
@@ -131,7 +134,7 @@ The public manifest intentionally contains no topic, script, asset name, composi
 
 ## 6. Retrieve results
 
-The worker creates `Telic-Renders/<jobId>` in Google Drive. A successful voice-preparation package contains:
+The worker creates the channel-specific `<jobId>` folder in Google Drive. A successful voice-preparation package contains:
 
 - `voiceover.mp3`
 - `alignment.json` with character and word timing plus alignment quality metrics
