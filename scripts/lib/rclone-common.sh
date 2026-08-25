@@ -53,9 +53,14 @@ tokens = {
     for token in re.split(r"[\s,]+", raw.replace("\\,", ","))
     if token
 }
-if tokens not in ({"drive.file"}, {"https://www.googleapis.com/auth/drive.file"}):
+normalized = {
+    token.removeprefix("https://www.googleapis.com/auth/")
+    for token in tokens
+}
+allowed = {"drive.file", "drive.readonly"}
+if "drive.file" not in normalized or not normalized.issubset(allowed):
     print(
-        "The gdrive remote must use exactly the drive.file OAuth scope; "
+        "The gdrive remote must include drive.file and may only add the read-only drive.readonly scope; "
         f"configured scopes: {raw!r}",
         file=sys.stderr,
     )
