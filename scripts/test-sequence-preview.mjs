@@ -35,6 +35,7 @@ const many = {sequences: Array.from({length: 40}, (_, index) => ({startFrame: in
 assert.equal(resolveSequencePreview(many, 39).sequenceIndex, 39);
 
 const sequenceRender = fs.readFileSync(new URL("./run-render-sequence.sh", import.meta.url), "utf8");
+const longPreview = fs.readFileSync(new URL("./run-long-preview.sh", import.meta.url), "utf8");
 const fullRender = fs.readFileSync(new URL("./run-render.sh", import.meta.url), "utf8");
 assert.match(sequenceRender, /PREVIEW_CRF=28/);
 assert.match(sequenceRender, /PREVIEW_SCALE="0\.5"/);
@@ -60,4 +61,15 @@ assert.match(sequenceRender, /\$\{GITHUB_WORKFLOW:-\}" = "Render private Remotio
 assert.match(sequenceRender, /node scripts\/autopilot\/prepare-long-window\.mjs/);
 assert.match(sequenceRender, /bash -o pipefail -c "\$PREPARE_COMMAND"/);
 
-console.log("Dynamic long-form sequence preview range, quality, bounded review derivatives, worker-owned prepare, and audio-fast-path tests passed.");
+// Complete long-form previews are the single visual gate before the full
+// render. They render the assembled composition once at review quality and
+// deliver only the non-canonical review package.
+assert.match(longPreview, /PREVIEW_CRF=30/);
+assert.match(longPreview, /PREVIEW_SCALE="0\.5"/);
+assert.match(longPreview, /PREPARE_COMMAND="npm run long:prepare"/);
+assert.match(longPreview, /npm run long:contract:test/);
+assert.match(longPreview, /TELIC_REUSE_SOURCE_AS_REVIEW=1/);
+assert.match(longPreview, /status: "long-preview-complete"/);
+assert.doesNotMatch(longPreview, /run-render\.sh/);
+
+console.log("Legacy sequence preview compatibility and single complete long-form preview contracts passed.");

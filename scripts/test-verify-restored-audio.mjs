@@ -107,6 +107,8 @@ try {
   const restoreScript = await fs.readFile(new URL("./download-drive-audio.sh", import.meta.url), "utf8");
   assert.match(restoreScript, /REQUEST_FILE="\$WORKER_ROOT\/jobs\/request\.json"/);
   assert.match(restoreScript, /if \[ "\$RESTORE_MODE" = "render-sequence" \]; then/);
+  assert.match(restoreScript, /RESTORE_MODE" = "long-preview"/);
+  assert.match(restoreScript, /RESTORE_MODE" = "render" \] \|\|/);
   assert.match(restoreScript, /--committed-long/);
   assert.match(restoreScript, /source "\$WORKER_ROOT\/scripts\/lib\/channel-storage\.sh"/);
   assert.match(restoreScript, /VOICE_ROOT_PATH="\$\(render_root_for_job_id "\$JOB_ID"\)\/\$JOB_ID"/);

@@ -30,11 +30,15 @@ export const validatePrivateRenderContract = ({
     return true;
   }
 
-  if (mode === "render" && jobFormat === "long") {
+  if (mode === "long-preview" && jobFormat !== "long") {
+    fail("complete long-form preview requires a private long-form source package.");
+  }
+
+  if ((mode === "long-preview" || mode === "render") && jobFormat === "long") {
     if (compositionId !== "CustomLongForm") fail("Private long-form final source selected the wrong composition.");
-    if (thumbnailCompositionId !== "LongFormThumbnail") fail("Private long-form final source selected the wrong thumbnail composition.");
+    if (mode === "render" && thumbnailCompositionId !== "LongFormThumbnail") fail("Private long-form final source selected the wrong thumbnail composition.");
     if (!LONG_PREPARE_COMMANDS.has(prepareCommand)) fail("Private long-form source selected an unsupported prepare command.");
-    if (checkCommand !== "npm run lint") fail("Private long-form final source selected the wrong check command.");
+    if (checkCommand !== "npm run lint") fail(`Private long-form ${mode} source selected the wrong check command.`);
   }
   return true;
 };

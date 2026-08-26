@@ -13,19 +13,23 @@ opaque render worker.
    and a revision through a `render/<job-id>` pull request.
 4. The worker performs the requested private stage:
    - `voice-prep` generates Gemini narration and exact-script WhisperX timing;
-   - `render-sequence` creates a private long-form window preview;
+   - `render-sequence` creates a legacy private long-form window preview for compatibility;
+   - `long-preview` renders one non-canonical complete long-form review package;
    - `render` restores the locked audio package, prepares the configured
      private composition, runs source checks, renders, and performs
      deterministic media QC.
 5. The worker uploads the successful package to the channel-specific private
-   Drive location. A full render includes `final.mp4` and `publish.json`.
-6. The VM reviews the private output, closes the temporary render PR without
-   merging it, and publishes through the channel's YouTube publisher. Once
-   processing and the exact future schedule are verified, the private job is
-   terminal; it does not wait for the video to become public.
+   Drive location. Complete previews are stored under a revision-specific
+   `previews/` folder; a full render includes `final.mp4` and `publish.json`.
+6. The VM/ChatGPT reviews a complete preview and keeps the request PR open for
+   the subsequent authoritative `render`. After the full output is reviewed,
+   the VM closes the temporary render PR without merging it and publishes
+   through the channel's YouTube publisher. Once processing and the exact
+   future schedule are verified, the private job is terminal; it does not wait
+   for the video to become public.
 
-Metadata-only finalization and non-canonical Short previews have separate
-request files and workflows so they cannot masquerade as a canonical render.
+Metadata-only finalization and non-canonical previews have separate request
+paths or delivery rules so they cannot masquerade as a canonical render.
 
 ## Source and composition contract
 
@@ -33,9 +37,12 @@ The private repository owns the composition, output name, preparation command,
 checks, narration, assets, audio timing, and YouTube metadata through its
 root-level `remotion-worker.json` and private `automation/current/` manifests.
 The worker does not receive a composition name or video details in the public
-request. Long-form requests use the private `CustomLongForm` contract and
-sequence previews; short requests use the private short composition selected
-by the source contract and channel stage.
+request. Long-form requests use the private `CustomLongForm` contract; the
+legacy sequence-preview path is retained only for already-running jobs. Short
+requests use the private short composition selected by the source contract and
+channel stage. Long-form authoring windows are validated locally; the single
+`long-preview` request reviews the assembled film before `render` is
+dispatched.
 
 ## Voice and timing
 

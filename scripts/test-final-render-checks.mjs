@@ -5,6 +5,7 @@ import fs from "node:fs";
 
 const script = fs.readFileSync(new URL("./run-render.sh", import.meta.url), "utf8");
 const sequenceScript = fs.readFileSync(new URL("./run-render-sequence.sh", import.meta.url), "utf8");
+const longPreviewScript = fs.readFileSync(new URL("./run-long-preview.sh", import.meta.url), "utf8");
 const voiceScript = fs.readFileSync(new URL("./run-voice-prep.sh", import.meta.url), "utf8");
 const stageCommon = fs.readFileSync(new URL("./lib/stage-common.sh", import.meta.url), "utf8");
 const workflow = fs.readFileSync(new URL("../.github/workflows/render.yml", import.meta.url), "utf8");
@@ -27,6 +28,10 @@ assert.ok(metadataPreflight < dependencySetup, "metadata preflight must run befo
 assert.ok(metadataPreflight < render, "metadata preflight must run before expensive Remotion rendering");
 
 assert.match(sequenceScript, /install_private_dependencies "\$INSTALL_COMMAND"/);
+assert.match(longPreviewScript, /install_private_dependencies "\$INSTALL_COMMAND"/);
+assert.match(longPreviewScript, /npm run long:contract:test/);
+assert.match(longPreviewScript, /TELIC_REUSE_SOURCE_AS_REVIEW=1/);
+assert.match(longPreviewScript, /status: "long-preview-complete"/);
 assert.doesNotMatch(voiceScript, /install_private_dependencies|INSTALL_COMMAND|node_modules/);
 assert.match(voiceScript, /restore-existing-long-voice-prep\.sh/);
 assert.match(voiceScript, /RCLONE_CONFIG_B64/);
@@ -92,6 +97,10 @@ assert.match(workflow, /echo "ok=true" >> "\$GITHUB_OUTPUT"/);
 assert.match(workflow, /steps\.audio_restore\.outputs\.ok == 'true'/);
 assert.match(workflow, /steps\.render\.outputs\.ok == 'true'/);
 assert.match(workflow, /steps\.quality\.outputs\.ok == 'true'/);
+assert.match(workflow, /Render one private long-form complete preview/);
+assert.match(workflow, /steps\.request\.outputs\.mode == 'long-preview'/);
+assert.match(workflow, /steps\.long_preview\.outputs\.ok == 'true'/);
+assert.match(workflow, /upload-preview-drive\.sh/);
 assert.match(workflow, /Deliver successful private package to Google Drive/);
 assert.match(workflow, /Deliver failed-attempt diagnostics privately/);
 assert.doesNotMatch(workflow, /steps\.(?:audio_restore|render|quality|sequence|voice)\.outputs\.exit_code == '0'/);

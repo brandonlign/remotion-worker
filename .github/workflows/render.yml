@@ -125,6 +125,7 @@ jobs:
           steps.request.outputs.skip != 'true' &&
           (steps.request.outputs.mode == 'voice-prep' ||
           steps.request.outputs.mode == 'render-sequence' ||
+          steps.request.outputs.mode == 'long-preview' ||
           (steps.request.outputs.mode == 'render' && steps.render_dedupe.outputs.cache-hit != 'true'))
         uses: actions/cache@v4
         with:
@@ -146,10 +147,10 @@ jobs:
 
           packages=()
 
-          # Voice prep, sequence previews, and final render review/QC all need
+          # Voice prep, long previews, sequence previews, and final render review/QC all need
           # FFmpeg/ffprobe. Reuse the same checksum-verified public bundle rather
           # than cold-installing the distro package on hosted runners.
-          if [[ "$RENDER_MODE" == "voice-prep" || "$RENDER_MODE" == "render-sequence" || "$RENDER_MODE" == "render" ]]; then
+          if [[ "$RENDER_MODE" == "voice-prep" || "$RENDER_MODE" == "render-sequence" || "$RENDER_MODE" == "long-preview" || "$RENDER_MODE" == "render" ]]; then
             source scripts/ensure-public-ffmpeg.sh
           elif ! command -v ffmpeg >/dev/null 2>&1; then
             packages+=(ffmpeg)
@@ -203,6 +204,7 @@ jobs:
         if: >-
           steps.request.outputs.skip != 'true' &&
           (steps.request.outputs.mode == 'render-sequence' ||
+          steps.request.outputs.mode == 'long-preview' ||
           (steps.request.outputs.mode == 'render' && steps.render_dedupe.outputs.cache-hit != 'true'))
         shell: bash
         env:
@@ -256,6 +258,37 @@ jobs:
           else
             echo "ok=false" >> "$GITHUB_OUTPUT"
             echo "Private long-form sequence preview failed; preserving diagnostics."
+          fi
+          exit 0
+
+      - name: Render one private long-form complete preview
+        id: long_preview
+        if: >-
+          steps.request.outputs.skip != 'true' &&
+          steps.request.outputs.mode == 'long-preview' &&
+          steps.audio_restore.outputs.ok == 'true'
+        shell: bash
+        env:
+          JOB_ID: ${{ steps.request.outputs.job_id }}
+          SOURCE_SHA: ${{ steps.request.outputs.source_sha }}
+        run: |
+          set +e
+          bash scripts/run-long-preview.sh \
+            jobs/request.json \
+            private-source \
+            "$RUNNER_TEMP/render-result" \
+            >"$RUNNER_TEMP/private-long-preview.log" 2>&1
+          code=$?
+          mkdir -p "$RUNNER_TEMP/render-result"
+          cp "$RUNNER_TEMP/private-long-preview.log" "$RUNNER_TEMP/render-result/private-long-preview.log"
+          printf '%s\n' "$code" > "$RUNNER_TEMP/render-result/long-preview-exit-code.txt"
+          echo "exit_code=$code" >> "$GITHUB_OUTPUT"
+          if [ "$code" -eq 0 ]; then
+            echo "ok=true" >> "$GITHUB_OUTPUT"
+            echo "Private long-form complete preview finished."
+          else
+            echo "ok=false" >> "$GITHUB_OUTPUT"
+            echo "Private long-form complete preview failed; preserving diagnostics."
           fi
           exit 0
 
@@ -369,6 +402,34 @@ jobs:
             exit 1
           fi
 
+      - name: Deliver non-canonical long-form preview package to Google Drive
+        id: long_preview_drive
+        if: >-
+          steps.request.outputs.skip != 'true' &&
+          steps.request.outputs.mode == 'long-preview' &&
+          steps.audio_restore.outputs.ok == 'true' &&
+          steps.long_preview.outputs.ok == 'true'
+        shell: bash
+        env:
+          RCLONE_CONFIG_B64: ${{ secrets.RCLONE_CONFIG_B64 }}
+          JOB_ID: ${{ steps.request.outputs.job_id }}
+          REVISION: ${{ steps.request.outputs.revision }}
+        run: |
+          if bash scripts/upload-preview-drive.sh \
+            "$RUNNER_TEMP/render-result" \
+            "$JOB_ID" \
+            "$REVISION" \
+            >"$RUNNER_TEMP/private-long-preview-upload.log" 2>&1; then
+            echo "ok=true" >> "$GITHUB_OUTPUT"
+            echo "Private non-canonical long-form preview delivered."
+          else
+            echo "ok=false" >> "$GITHUB_OUTPUT"
+            echo "Private long-form preview delivery failed."
+            tail -n 8 "$RUNNER_TEMP/private-long-preview-upload.log" \
+              | sed -E 's/(token|client_secret|refresh_token|access_token)[[:space:]]*=[[:space:]]*[^[:space:]]+/\1=[REDACTED]/Ig'
+            exit 1
+          fi
+
       - name: Deliver failed-attempt diagnostics privately
         id: diagnostic_drive
         if: >-
@@ -384,6 +445,18 @@ jobs:
               (
                 steps.audio_restore.outputs.ok != 'true' ||
                 steps.sequence.outputs.ok != 'true'
+              )
+            ) ||
+            (
+              steps.request.outputs.mode == 'long-preview' &&
+              (
+                steps.audio_restore.outputs.ok != 'true' ||
+                steps.long_preview.outputs.ok != 'true' ||
+                (
+                  steps.audio_restore.outputs.ok == 'true' &&
+                  steps.long_preview.outputs.ok == 'true' &&
+                  steps.long_preview_drive.outcome != 'success'
+                )
               )
             ) ||
             (
@@ -452,6 +525,7 @@ jobs:
           steps.node_dependencies_cache.outputs.cache-hit != 'true' &&
           (
             (steps.request.outputs.mode == 'render-sequence' && steps.sequence.outputs.ok == 'true') ||
+            (steps.request.outputs.mode == 'long-preview' && steps.long_preview.outputs.ok == 'true') ||
             (
               steps.request.outputs.mode == 'render' &&
               steps.render_dedupe.outputs.cache-hit != 'true' &&
@@ -492,6 +566,18 @@ jobs:
               )
             ) ||
             (
+              steps.request.outputs.mode == 'long-preview' &&
+              (
+                steps.audio_restore.outputs.ok != 'true' ||
+                steps.long_preview.outputs.ok != 'true' ||
+                (
+                  steps.audio_restore.outputs.ok == 'true' &&
+                  steps.long_preview.outputs.ok == 'true' &&
+                  steps.long_preview_drive.outcome != 'success'
+                )
+              )
+            ) ||
+            (
               steps.request.outputs.mode == 'render' &&
               steps.render_dedupe.outputs.cache-hit != 'true' &&
               (
@@ -508,5 +594,5 @@ jobs:
             )
           )
         run: |
-          echo "The requested private voice, sequence preview, or full render stage failed. Failure diagnostics were isolated from the canonical Drive success package when possible."
+          echo "The requested private voice, long preview, sequence preview, or full render stage failed. Failure diagnostics were isolated from the canonical Drive success package when possible."
           exit 1

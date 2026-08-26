@@ -66,11 +66,17 @@ assert.match(qualityGate, /timestampSeconds: Number\(\(\(frameNumber - 1\) \/ re
 assert.doesNotMatch(qualityGate, /\(frameNumber - 1\) \* 2/);
 
 const sequence = fs.readFileSync(new URL("./run-render-sequence.sh", import.meta.url), "utf8");
+const longPreview = fs.readFileSync(new URL("./run-long-preview.sh", import.meta.url), "utf8");
 assert.match(sequence, /PREVIEW_VIDEO="\$OUTPUT_DIR\/review\.mp4"/);
 assert.doesNotMatch(sequence, /sequence-preview\.mp4/);
 assert.match(sequence, /TELIC_REUSE_SOURCE_AS_REVIEW=1/);
 assert.doesNotMatch(sequence, /TELIC_REMOTION_BIN=/, "sequence review derivatives must not use Remotion's minimal FFmpeg bundle");
 assert.match(sequence, /create-review-assets\.sh/);
+assert.match(longPreview, /PREVIEW_VIDEO="\$OUTPUT_DIR\/review\.mp4"/);
+assert.match(longPreview, /PREVIEW_CRF=30/);
+assert.match(longPreview, /PREVIEW_SCALE="0\.5"/);
+assert.match(longPreview, /TELIC_REUSE_SOURCE_AS_REVIEW=1/);
+assert.match(longPreview, /upload-preview-drive|canonical:false|canonical: false/);
 
 const bootstrap = fs.readFileSync(new URL("./ensure-public-rclone.sh", import.meta.url), "utf8");
 assert.match(bootstrap, /RCLONE_VERSION="1\.75\.0"/);
@@ -85,11 +91,11 @@ assert.match(workflow, /key: telic-rclone-v1\.75\.0-\$\{\{ runner\.os \}\}-\$\{\
 assert.match(workflow, /source scripts\/ensure-public-rclone\.sh/);
 assert.match(workflow, /name: Cache public full FFmpeg tools/);
 assert.match(workflow, /key: telic-ffmpeg-n8\.1-btbn-20260813-\$\{\{ runner\.os \}\}-\$\{\{ runner\.arch \}\}-py3/);
-assert.match(workflow, /steps\.request\.outputs\.mode == 'voice-prep' \|\|\n          steps\.request\.outputs\.mode == 'render-sequence' \|\|/);
+assert.match(workflow, /steps\.request\.outputs\.mode == 'voice-prep' \|\|\n          steps\.request\.outputs\.mode == 'render-sequence' \|\|\n          steps\.request\.outputs\.mode == 'long-preview' \|\|/);
 assert.match(workflow, /steps\.request\.outputs\.mode == 'render' && steps\.render_dedupe\.outputs\.cache-hit != 'true'/);
-assert.match(workflow, /if \[\[ "\$RENDER_MODE" == "voice-prep" \|\| "\$RENDER_MODE" == "render-sequence" \|\| "\$RENDER_MODE" == "render" \]\]; then/);
+assert.match(workflow, /if \[\[ "\$RENDER_MODE" == "voice-prep" \|\| "\$RENDER_MODE" == "render-sequence" \|\| "\$RENDER_MODE" == "long-preview" \|\| "\$RENDER_MODE" == "render" \]\]; then/);
 assert.match(workflow, /source scripts\/ensure-public-ffmpeg\.sh/);
 assert.doesNotMatch(workflow, /Remotion dependency after npm ci/);
 assert.doesNotMatch(workflow, /packages\+=\(rclone\)/);
 
-console.log("Review assets use one full-render decode, semantic stills are targeted-only, and voice/sequence/final stages share the pinned public FFmpeg path.");
+console.log("Review assets use one full-render decode, one complete long-form preview, semantic stills are targeted-only, and all render stages share the pinned public FFmpeg path.");
