@@ -30,7 +30,7 @@ assert.match(upload, /Multiple render folders already exist for this job ID/);
 assert.match(upload, /"gdrive:\$TARGET_PATH"/);
 assert.match(upload, /validate_drive_file_scope/);
 assert.match(previewUpload, /validate_drive_file_scope/);
-assert.match(rcloneCommon, /must use exactly the drive\.file OAuth scope/);
+assert.match(rcloneCommon, /must include drive\.file and may only add the read-only drive\.readonly scope/);
 assert.doesNotMatch(upload, /auth\/drive["']/);
 assert.doesNotMatch(previewUpload, /auth\/drive["']/);
 assert.match(restore, /VOICE_ROOT_PATH="\$\(render_root_for_job_id "\$JOB_ID"\)\/\$JOB_ID"/);
@@ -57,6 +57,7 @@ const runScopeCheck = (scope) => {
 
 assert.equal(runScopeCheck("drive.file").status, 0);
 assert.equal(runScopeCheck("https://www.googleapis.com/auth/drive.file").status, 0);
+assert.equal(runScopeCheck("drive.file drive.readonly").status, 0);
 assert.notEqual(runScopeCheck("drive").status, 0);
 assert.notEqual(runScopeCheck("https://www.googleapis.com/auth/drive").status, 0);
 assert.notEqual(runScopeCheck("drive.file https://www.googleapis.com/auth/drive.metadata.readonly").status, 0);

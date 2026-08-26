@@ -34,16 +34,38 @@ if [ -n "${RCLONE_CONFIG_B64:-}" ]; then
   fi
 fi
 
+cd "$SOURCE_DIR"
+
+# Long-form source validation is deliberately before dependency/runtime setup.
+# The source contract is cheap and deterministic; discovering a malformed beat
+# or research handoff after WhisperX installation wastes minutes and causes the
+# controller to start another worker attempt for a failure we could report now.
+source_format="$(node - "$SOURCE_DIR/automation/current/job.json" <<'NODE'
+const fs = require("node:fs");
+const job = JSON.parse(fs.readFileSync(process.argv[2], "utf8"));
+process.stdout.write(String(job.format ?? ""));
+NODE
+)"
+if [ "$source_format" = "long" ]; then
+  if [ ! -f "scripts/autopilot/validate-long-source.mjs" ]; then
+    stage_fail "Long-form source validation script is missing from the private source."
+  fi
+  node scripts/autopilot/validate-long-source.mjs
+fi
+
 if [ -z "${GEMINI_API_KEYS_JSON:-}" ] && [ -z "${GEMINI_API_KEY:-}" ]; then
   stage_fail "GEMINI_API_KEYS_JSON or GEMINI_API_KEY is required for private Gemini voice preparation."
 fi
-
-cd "$SOURCE_DIR"
 
 # These are lightweight source-tool unit tests and require no Remotion/npm
 # dependency installation. Run them before the expensive alignment runtime so
 # a broken voice tool fails in seconds rather than after environment setup.
 npm run voiceover:test
+
+# Each long-form segment runs the generator in a fresh Node process. Keep
+# credential health outside the private artifact package so rejected/quota-
+# exhausted slots are not retried from scratch for every segment.
+export GEMINI_CREDENTIAL_STATE_PATH="${RUNNER_TEMP:-${TMPDIR:-/tmp}}/telic-gemini-credential-health-${JOB_ID}.json"
 
 WHISPERX_VERSION="3.8.6"
 PYTHON_ABI="$(python3 -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")')"
