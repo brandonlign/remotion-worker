@@ -15,6 +15,24 @@ trap stage_cleanup EXIT
 
 prepare_private_source_stage "Voice preparation"
 
+# Long-form source validation is deliberately before both Drive reuse and
+# dependency/runtime setup. The source contract is cheap and deterministic;
+# discovering a malformed beat or research handoff after either path wastes
+# time and can accept an artifact that no longer matches the story.
+cd "$SOURCE_DIR"
+source_format="$(node - "$SOURCE_DIR/automation/current/job.json" <<'NODE'
+const fs = require("node:fs");
+const job = JSON.parse(fs.readFileSync(process.argv[2], "utf8"));
+process.stdout.write(String(job.format ?? ""));
+NODE
+)"
+if [ "$source_format" = "long" ]; then
+  if [ ! -f "scripts/autopilot/validate-long-source.mjs" ]; then
+    stage_fail "Long-form source validation script is missing from the private source."
+  fi
+  node scripts/autopilot/validate-long-source.mjs
+fi
+
 # Recovery should never regenerate an identical long-form voice package if the
 # exact source/narration/audio identity is already durable in private Drive.
 # This optional fast path is private-only and fail-open: any absence, stale
@@ -32,25 +50,6 @@ if [ -n "${RCLONE_CONFIG_B64:-}" ]; then
   if [ "$reuse_code" -ne 10 ]; then
     echo "Exact private Drive voice reuse was unavailable; continuing with normal generation." >&2
   fi
-fi
-
-cd "$SOURCE_DIR"
-
-# Long-form source validation is deliberately before dependency/runtime setup.
-# The source contract is cheap and deterministic; discovering a malformed beat
-# or research handoff after WhisperX installation wastes minutes and causes the
-# controller to start another worker attempt for a failure we could report now.
-source_format="$(node - "$SOURCE_DIR/automation/current/job.json" <<'NODE'
-const fs = require("node:fs");
-const job = JSON.parse(fs.readFileSync(process.argv[2], "utf8"));
-process.stdout.write(String(job.format ?? ""));
-NODE
-)"
-if [ "$source_format" = "long" ]; then
-  if [ ! -f "scripts/autopilot/validate-long-source.mjs" ]; then
-    stage_fail "Long-form source validation script is missing from the private source."
-  fi
-  node scripts/autopilot/validate-long-source.mjs
 fi
 
 if [ -z "${GEMINI_API_KEYS_JSON:-}" ] && [ -z "${GEMINI_API_KEY:-}" ]; then
