@@ -2,7 +2,7 @@
 set -Eeuo pipefail
 
 if [ "$#" -lt 2 ] || [ "$#" -gt 3 ]; then
-  echo "Usage: download-drive-audio.sh <private-source-dir> <job-id> [render|render-sequence]" >&2
+  echo "Usage: download-drive-audio.sh <private-source-dir> <job-id> [render|long-preview|render-sequence]" >&2
   exit 64
 fi
 
@@ -19,7 +19,7 @@ const fs = require('node:fs');
 const [requestFile, expectedJobId] = process.argv.slice(2);
 try {
   const request = JSON.parse(fs.readFileSync(requestFile, 'utf8'));
-  if (request.jobId === expectedJobId && ["render", "render-sequence"].includes(request.mode)) {
+  if (request.jobId === expectedJobId && ["render", "long-preview", "render-sequence"].includes(request.mode)) {
     process.stdout.write(request.mode);
   }
 } catch {}
@@ -38,7 +38,7 @@ PRIVATE_AUDIO_STAGE_DIR="$(mktemp -d)"
 trap 'rm -f "${DRIVE_RUNTIME_FILE}" "${AUDIO_ROWS_FILE}" "${VOICE_NAMES_FILE}"; rm -rf "${VOICE_STAGE_DIR}" "${PRIVATE_AUDIO_STAGE_DIR}"; rclone_cleanup' EXIT
 
 case "$RESTORE_MODE" in
-  render|render-sequence) ;;
+  render|long-preview|render-sequence) ;;
   *) rclone_fail "Unsupported audio restore mode: $RESTORE_MODE" 64 ;;
 esac
 
@@ -60,9 +60,9 @@ SOURCE_RUNTIME_FILE="$SOURCE_DIR/automation/current/audio-runtime.json"
 
 # Restore the immutable voice package with one provider copy instead of
 # starting a separate rclone process for each file. Sequence previews need only
-# the voiceover; full renders also need the alignment/runtime pair.
+# the voiceover; complete previews and full renders also need the alignment/runtime pair.
 printf '%s\n' 'voiceover.mp3' > "$VOICE_NAMES_FILE"
-if [ "$RESTORE_MODE" = "render" ]; then
+if [ "$RESTORE_MODE" = "render" ] || [ "$RESTORE_MODE" = "long-preview" ]; then
   printf '%s\n' 'alignment.json' 'audio-runtime.json' >> "$VOICE_NAMES_FILE"
 fi
 rclone copy "gdrive:$VOICE_ROOT_PATH" "$VOICE_STAGE_DIR" \

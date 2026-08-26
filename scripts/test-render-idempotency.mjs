@@ -38,6 +38,19 @@ try {
     /^request_key=telic-web-202608131318-0ed7a0-26066aad9b3ba4911e3f739ffc0f4209d4d62ffa-r2-render$/m,
   );
 
+  const longPreview = await run({
+    jobId: "telic-long-20260814-1800",
+    sourceSha: "26066aad9b3ba4911e3f739ffc0f4209d4d62ffa",
+    revision: 3,
+    mode: "long-preview",
+  }, "long-preview");
+  assert.equal(longPreview.result.status, 0, longPreview.result.stderr);
+  assert.match(longPreview.output, /^mode=long-preview$/m);
+  assert.match(
+    longPreview.output,
+    /^request_key=telic-long-20260814-1800-26066aad9b3ba4911e3f739ffc0f4209d4d62ffa-r3-long-preview$/m,
+  );
+
   const coffee = await run({
     jobId: "coffee-short-20260814-1800",
     sourceSha: "26066aad9b3ba4911e3f739ffc0f4209d4d62ffa",

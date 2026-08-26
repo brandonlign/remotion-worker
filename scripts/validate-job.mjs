@@ -34,8 +34,8 @@ if (!Number.isInteger(request.revision) || request.revision < 1 || request.revis
 }
 
 const mode = request.mode ?? "render";
-if (!new Set(["voice-prep", "render-sequence", "render"]).has(mode)) {
-  throw new Error("mode must be voice-prep, render-sequence, or render.");
+if (!new Set(["voice-prep", "render-sequence", "long-preview", "render"]).has(mode)) {
+  throw new Error("mode must be voice-prep, render-sequence, long-preview, or render.");
 }
 
 let sequenceIndex = "";
