@@ -26,7 +26,7 @@ INSTALL_COMMAND="$(source_config_field installCommand)"
 CONFIGURED_PREPARE_COMMAND="$(source_config_field prepareCommand)"
 CHECK_COMMAND="$(source_config_field checkCommand)"
 PREPARE_COMMAND="npm run long:prepare-window"
-PREVIEW_CHECK_COMMAND="npx eslint src && npx tsc --noEmit"
+PREVIEW_CHECK_COMMAND="npm run long:preflight"
 PREVIEW_CRF=28
 PREVIEW_SCALE="0.5"
 SEQUENCE_REVIEW_FRAME_LIMIT=20
@@ -45,17 +45,12 @@ install_private_dependencies "$INSTALL_COMMAND"
 cd "$SOURCE_DIR"
 if [ "${GITHUB_ACTIONS:-}" = "true" ] \
   && [ "${GITHUB_WORKFLOW:-}" = "Render private Remotion source" ]; then
-  # The sequence step in this workflow runs only after audio restore succeeds.
-  # That restore already checked the frozen runtime and exact MP3 SHA-256.
   node scripts/autopilot/prepare-long-window.mjs
 else
-  # Direct/manual invocation still uses the same worker-owned canonical window
-  # preparation command rather than trusting mutable private stage state.
   bash -o pipefail -c "$PREPARE_COMMAND"
 fi
-# Sequence previews need video-code safety, not the entire controller/installer
-# regression suite. Keep ESLint over all src plus full TypeScript checking here;
-# the Remotion render below is the final compilation/runtime check for this window.
+# Assembly verification requires the exact private-source preflight after
+# private voice/music/SFX restoration and before any preview render begins.
 bash -o pipefail -c "$PREVIEW_CHECK_COMMAND"
 
 if [ ! -x "$REMOTION_BIN" ]; then
@@ -71,9 +66,6 @@ RENDER_END_FRAME="$(node -e 'const x=JSON.parse(process.argv[1]); process.stdout
 END_FRAME="$(node -e 'const x=JSON.parse(process.argv[1]); process.stdout.write(String(x.endFrame))' "$RANGE_JSON")"
 PADDED_INDEX="$(printf '%02d' "$SEQUENCE_INDEX")"
 OUTPUT_DIR="$OUTPUT_ROOT/sequence-$PADDED_INDEX"
-# The sequence render is already the intentionally low-quality review asset.
-# Render it directly to the canonical review filename instead of transcoding a
-# second MP4 after Remotion finishes.
 PREVIEW_VIDEO="$OUTPUT_DIR/review.mp4"
 mkdir -p "$OUTPUT_DIR"
 
@@ -87,9 +79,6 @@ mkdir -p "$OUTPUT_DIR"
   --frames="${START_FRAME}-${RENDER_END_FRAME}" \
   --log=error
 
-# The full review MP4 is the window-review authority. Keep one compact
-# chronological still set/contact sheet for fast scanning, but never decode and
-# upload more stills than the 5x4 contact sheet can represent usefully.
 TELIC_REUSE_SOURCE_AS_REVIEW=1 \
   bash "$WORKER_ROOT/scripts/create-review-assets.sh" \
     "$PREVIEW_VIDEO" "$OUTPUT_DIR" "$SEQUENCE_REVIEW_FRAME_LIMIT"
