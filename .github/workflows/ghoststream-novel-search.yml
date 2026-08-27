@@ -1,4 +1,4 @@
-name: GhostStream novel search
+name: OrbitTrace Denis review package
 
 on:
   pull_request:
@@ -11,7 +11,7 @@ permissions:
   contents: read
 
 jobs:
-  external-zero-speed-synthesis:
+  build-review-package:
     runs-on: ubuntu-latest
     timeout-minutes: 180
     steps:
@@ -24,20 +24,22 @@ jobs:
           cache-dependency-path: ghoststream_novel/requirements.txt
 
       - name: Install dependencies
-        run: python -m pip install -r ghoststream_novel/requirements.txt
+        run: |
+          python -m pip install -r ghoststream_novel/requirements.txt
+          python -m pip install matplotlib==3.7.5 pillow==10.4.0
 
-      - name: Run uniform zero-speed-drift synthesis
+      - name: Build OrbitTrace review package
         shell: bash
         run: |
           set -o pipefail
-          python ghoststream_novel/synthesize_all_external_archives_zero_speed.py | tee ghoststream_all_external_zero_speed.log
+          python ghoststream_novel/build_orbittrace_denis_package.py | tee orbittrace_denis_package.log
 
-      - name: Upload results
+      - name: Upload review package
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: ghoststream-all-external-zero-speed
+          name: orbittrace-denis-review-package
           path: |
-            ghoststream_all_external_zero_speed/
-            ghoststream_all_external_zero_speed.log
+            orbittrace_denis_package/
+            orbittrace_denis_package.log
           if-no-files-found: warn
