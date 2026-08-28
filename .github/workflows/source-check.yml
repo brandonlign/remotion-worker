@@ -93,7 +93,7 @@ jobs:
         run: |
           git config user.name 'Telic Controller'
           git config user.email 'telic-controller@users.noreply.github.com'
-          git add -A tools/telic-vnext
+          git add -A tools/telic-vnext scripts/autopilot/editorial-visuals-contract.test.mjs
           git diff --cached --quiet && { echo 'Expected migration changes but found none'; exit 1; }
           git commit -m 'Replace Coffee with HiFi Studio channel'
           git push origin HEAD:main
