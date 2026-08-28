@@ -29,6 +29,26 @@ process.stdout.write(String(job?.format || ''));
 NODE
 )"
 
+MASTERING_PROFILE=""
+CHANNEL_ID="$(node - "$SOURCE_DIR/automation/current/job.json" <<'NODE'
+const fs = require('node:fs');
+const job = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
+process.stdout.write(String(job?.channelId || ''));
+NODE
+)"
+if [[ "$CHANNEL_ID" =~ ^[a-z0-9_-]+$ ]]; then
+  MASTERING_PROFILE="$SOURCE_DIR/tools/telic-vnext/channels/$CHANNEL_ID/source-profile.json"
+fi
+HAS_MASTERING_POLICY="false"
+if [ -s "$MASTERING_PROFILE" ]; then
+  HAS_MASTERING_POLICY="$(node - "$MASTERING_PROFILE" <<'NODE'
+const fs = require('node:fs');
+const profile = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
+process.stdout.write(profile?.audio?.mastering ? 'true' : 'false');
+NODE
+  )"
+fi
+
 PREPARE_COMMAND="$CONFIGURED_PREPARE_COMMAND"
 if [ "$JOB_FORMAT" = "long" ]; then
   PREPARE_COMMAND="npm run long:prepare"
@@ -79,6 +99,13 @@ fi
 "$REMOTION_BIN" render \
   "$ENTRY_POINT" "$COMPOSITION_ID" "$FINAL_VIDEO" \
   --codec=h264 --crf="$CRF" --log=error
+
+if [ "$HAS_MASTERING_POLICY" = "true" ]; then
+  MASTERED_VIDEO="$OUTPUT_DIR/.${OUTPUT_NAME}.mastered.mp4"
+  node "$WORKER_ROOT/scripts/master-final-audio.mjs" \
+    "$FINAL_VIDEO" "$MASTERED_VIDEO" "$MASTERING_PROFILE" "$OUTPUT_DIR/audio-mastering.json"
+  mv -f "$MASTERED_VIDEO" "$FINAL_VIDEO"
+fi
 
 if [ -n "$THUMBNAIL_COMPOSITION_ID" ]; then
   "$REMOTION_BIN" still \

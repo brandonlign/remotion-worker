@@ -4,6 +4,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import process from "node:process";
 import {spawn} from "node:child_process";
+import {audioLoudnessIssues, measureAudioLoudness, resolveMasteringPolicy} from "./master-final-audio.mjs";
 import {resolveQualityPolicy} from "./quality-policy.mjs";
 
 const readJson = async (filePath) => JSON.parse(await fs.readFile(filePath, "utf8"));
@@ -118,6 +119,19 @@ const main = async () => {
   if (silenceDurations.some((value) => value >= quality.maximumSilenceSeconds)) issues.push("The final video contains an extended silent segment.");
   if (freezeDurations.some((value) => value >= quality.maximumFreezeSeconds)) issues.push("The final video contains an extended frozen segment.");
 
+  const masteringPolicy = resolveMasteringPolicy(sourceProfile);
+  let audioMastering = null;
+  if (masteringPolicy) {
+    try {
+      const measurement = await measureAudioLoudness(videoPath, masteringPolicy);
+      const masteringIssues = audioLoudnessIssues({measurement, policy: masteringPolicy});
+      issues.push(...masteringIssues.map((issue) => `Final audio mastering: ${issue}`));
+      audioMastering = {policy: masteringPolicy, measured: measurement, deterministicIssues: masteringIssues};
+    } catch (error) {
+      issues.push(`Final audio loudness analysis failed: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+
   let thumbnail = null;
   if (format === "long") {
     const inspected = await inspectLongThumbnail(resultDir, status);
@@ -131,7 +145,7 @@ const main = async () => {
   const sampledFrames = await listSampledFrames(path.join(resultDir, "keyframes"), maximumFrames, reviewFrameFps);
   const passed = issues.length === 0;
   const report = {
-    version: 4,
+    version: 5,
     jobId: job.jobId,
     format,
     styleMode: job.styleMode ?? config.styleMode ?? "pragma",
@@ -154,6 +168,7 @@ const main = async () => {
       maximumBlackDurationSeconds: Math.max(0, ...blackDurations),
       maximumSilenceDurationSeconds: Math.max(0, ...silenceDurations),
       maximumFreezeDurationSeconds: Math.max(0, ...freezeDurations),
+      audioMastering,
       reviewFrameFps,
     },
     thumbnail,

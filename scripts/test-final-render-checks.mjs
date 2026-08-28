@@ -62,8 +62,14 @@ assert.match(script, /--codec=h264/);
 assert.match(script, /--crf="\$CRF"/);
 assert.match(script, /REVIEW_FRAME_LIMIT=/);
 assert.match(script, /create-review-assets\.sh" "\$FINAL_VIDEO" "\$OUTPUT_DIR" "\$REVIEW_FRAME_LIMIT"/);
+assert.match(script, /master-final-audio\.mjs/);
+assert.match(script, /audio-mastering\.json/);
+assert.ok(script.indexOf("master-final-audio.mjs") < script.indexOf("create-review-assets.sh"), "final audio mastering must run before review assets are created");
 
 const qualityGate = fs.readFileSync(new URL("./deterministic-quality-gate.mjs", import.meta.url), "utf8");
+assert.match(qualityGate, /measureAudioLoudness/);
+assert.match(qualityGate, /audioLoudnessIssues/);
+assert.match(qualityGate, /audioMastering/);
 assert.match(qualityGate, /const mediaAnalysis = await runCapture\("ffmpeg"/);
 assert.match(qualityGate, /blackdetect=.*freezedetect=/);
 assert.match(qualityGate, /silencedetect=/);
