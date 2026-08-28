@@ -4,6 +4,10 @@ on:
   push:
     branches: [diag/source-refactor-gate]
 
+concurrency:
+  group: hifi-source-migration
+  cancel-in-progress: true
+
 permissions:
   contents: read
   issues: write
