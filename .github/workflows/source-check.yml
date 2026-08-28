@@ -97,3 +97,5 @@ jobs:
           git diff --cached --quiet && { echo "Expected native preflight changes but found none"; exit 1; }
           git commit -m "Generalize native long preflights across channels"
           git push origin HEAD:main
+
+      # One-shot source mutation harness; remove after the validated push.
