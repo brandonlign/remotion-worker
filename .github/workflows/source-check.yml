@@ -8,6 +8,7 @@ on:
 
 permissions:
   contents: read
+  issues: write
 
 jobs:
   source-refactor:
@@ -39,14 +40,18 @@ jobs:
           sudo apt-get install -y ffmpeg
 
       - name: Install source dependencies
+        id: deps
         working-directory: source
         run: |
-          npm ci
-          npm ci --prefix tools/telic-vnext
+          set -o pipefail
+          npm ci 2>&1 | tee /tmp/deps-root.log
+          npm ci --prefix tools/telic-vnext 2>&1 | tee /tmp/deps-vnext.log
 
       - name: Generalize native long-form preflights and fixtures
+        id: patch
         working-directory: source
         run: |
+          exec > >(tee /tmp/patch.log) 2>&1
           python3 - <<'PY'
           from pathlib import Path
 
@@ -106,18 +111,28 @@ jobs:
           git diff -- tools/telic-vnext/src/native-visual-plan-preflight.mjs tools/telic-vnext/test/native-visual-plan-preflight.test.mjs
 
       - name: Source gate — root lint and script checks
+        id: root
         working-directory: source
-        run: npm run lint
+        run: |
+          set -o pipefail
+          npm run lint 2>&1 | tee /tmp/root.log
 
       - name: Source gate — vNext tests
+        id: vnext
         working-directory: source/tools/telic-vnext
-        run: npm test
+        run: |
+          set -o pipefail
+          npm test 2>&1 | tee /tmp/vnext.log
 
       - name: Source gate — vNext syntax
+        id: syntax
         working-directory: source/tools/telic-vnext
-        run: npm run test:syntax
+        run: |
+          set -o pipefail
+          npm run test:syntax 2>&1 | tee /tmp/syntax.log
 
       - name: Commit validated source refactor to main
+        id: commit
         working-directory: source
         run: |
           git config user.name "Telic Controller"
@@ -127,5 +142,29 @@ jobs:
           git commit -m "Generalize native long preflights across channels"
           git push origin HEAD:main
 
-      # One-shot source mutation harness; remove after the validated push.
-      # Triggered for another validation pass.
+      - name: Report failed source refactor gate
+        if: failure()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DEPS: ${{ steps.deps.outcome }}
+          PATCH: ${{ steps.patch.outcome }}
+          ROOT: ${{ steps.root.outcome }}
+          VNEXT: ${{ steps.vnext.outcome }}
+          SYNTAX: ${{ steps.syntax.outcome }}
+          COMMIT: ${{ steps.commit.outcome }}
+        run: |
+          {
+            echo "Run: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+            echo
+            echo "deps=$DEPS patch=$PATCH root=$ROOT vnext=$VNEXT syntax=$SYNTAX commit=$COMMIT"
+            for f in /tmp/deps-root.log /tmp/deps-vnext.log /tmp/patch.log /tmp/root.log /tmp/vnext.log /tmp/syntax.log; do
+              if [ -f "$f" ]; then
+                echo
+                echo "===== $f (tail) ====="
+                tail -n 160 "$f"
+              fi
+            done
+          } >/tmp/source-refactor-failure.txt
+          gh issue create --repo "$GITHUB_REPOSITORY" --title "TEMP source-refactor failure $GITHUB_RUN_ID" --body-file /tmp/source-refactor-failure.txt
+
+      # One-shot source mutation/diagnostic harness; remove after validated push.
