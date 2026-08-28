@@ -1,4 +1,4 @@
-name: Source Refactor Check
+name: Source Refactor Apply
 
 on:
   push:
@@ -10,18 +10,18 @@ permissions:
   contents: read
 
 jobs:
-  source-check:
+  source-refactor:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
-      - name: Check out private source
+      - name: Check out private source main
         uses: actions/checkout@v4
         with:
           repository: ${{ secrets.SOURCE_REPOSITORY }}
-          ref: a76206b9e331c69529b34279bc5f519eab4bcd72
+          ref: main
           token: ${{ secrets.SOURCE_REPO_TOKEN }}
           path: source
-          persist-credentials: false
+          persist-credentials: true
           fetch-depth: 1
 
       - name: Set up Node
@@ -44,6 +44,56 @@ jobs:
           npm ci
           npm ci --prefix tools/telic-vnext
 
-      - name: Run source gate
+      - name: Generalize native long-form preflights
+        working-directory: source
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path('tools/telic-vnext/src/native-visual-plan-preflight.mjs')
+          text = path.read_text()
+          replacements = [
+              (
+                  "if (phase !== 'long_visual_plan' || job?.channelId !== 'telic' || job?.format !== 'long') return null;",
+                  "if (phase !== 'long_visual_plan' || job?.format !== 'long') return null;",
+                  1,
+              ),
+              (
+                  "if (job?.channelId !== 'telic' || job?.format !== 'long') return null;",
+                  "if (job?.format !== 'long') return null;",
+                  2,
+              ),
+              (
+                  "scripts/autopilot/prepare-telic-visual-plan.mjs",
+                  "scripts/autopilot/prepare-long-visual-plan.mjs",
+                  2,
+              ),
+              (
+                  "scripts/autopilot/validate-telic-long-visuals.mjs",
+                  "scripts/autopilot/validate-long-visuals.mjs",
+                  1,
+              ),
+          ]
+          for old, new, expected in replacements:
+              count = text.count(old)
+              if count != expected:
+                  raise SystemExit(f'Expected {expected} occurrence(s) of {old!r}, found {count}; refusing unsafe patch.')
+              text = text.replace(old, new)
+          path.write_text(text)
+          PY
+          git diff --check
+          git diff -- tools/telic-vnext/src/native-visual-plan-preflight.mjs
+
+      - name: Run full source gate
         working-directory: source
         run: npm run ci:check
+
+      - name: Commit validated source refactor to main
+        working-directory: source
+        run: |
+          git config user.name "Telic Controller"
+          git config user.email "telic-controller@users.noreply.github.com"
+          git add tools/telic-vnext/src/native-visual-plan-preflight.mjs
+          git diff --cached --quiet && { echo "Expected native preflight changes but found none"; exit 1; }
+          git commit -m "Generalize native long preflights across channels"
+          git push origin HEAD:main
