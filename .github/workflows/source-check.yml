@@ -98,10 +98,9 @@ jobs:
           git commit -m 'Replace Coffee with HiFi Studio channel'
           git push origin HEAD:main
 
-      - name: Report failure
+      - name: Build failure report
         if: failure()
         env:
-          GH_TOKEN: ${{ github.token }}
           DEPS: ${{ steps.deps.outcome }}
           PATCH: ${{ steps.patch.outcome }}
           ROOT: ${{ steps.root.outcome }}
@@ -116,7 +115,22 @@ jobs:
               [ -f "$f" ] || continue
               echo; echo "===== $f FAILURES ====="
               grep -n -B3 -A24 -E '^not ok |ENOENT|AssertionError|ERR_ASSERTION|ERR_MODULE_NOT_FOUND|testCodeFailure' "$f" || true
-              echo; echo "===== $f TAIL ====="; tail -n 120 "$f"
+              echo; echo "===== $f TAIL ====="; tail -n 160 "$f"
             done
           } >/tmp/failure.txt
+
+      - name: Upload failure report
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: hifi-migration-failure
+          path: /tmp/failure.txt
+          if-no-files-found: error
+          retention-days: 1
+
+      - name: Report failure issue
+        if: failure()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
           gh issue create --repo "$GITHUB_REPOSITORY" --title "TEMP HiFi migration failure $GITHUB_RUN_ID" --body-file /tmp/failure.txt
