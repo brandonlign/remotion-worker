@@ -9,17 +9,36 @@ s = p.read_text()
 s = s.replace('`prompts/long-good-ideas.md`', '`tools/telic-vnext/channels/hifi/prompts/long-good-ideas.md`')
 s = s.replace('Generate fresh candidates independently;', 'Generate fresh candidates independently every run;')
 s = s.replace('not a queue, backlog, or preapproved topic pool.', 'not a queue, backlog, or preapproved topic pool. They are not a backlog or preapproved topic pool.')
+s += '\nAlways generate fresh candidates independently; the examples calibrate taste rather than choose the next topic.\n'
 p.write_text(s)
 
 p = prompts / 'source-stage.txt'
 s = p.read_text().replace('Generate fresh candidates independently;', 'Generate fresh candidates independently every run;')
 s = s.replace('not a queue, backlog, or preapproved topic pool.', 'not a queue, backlog, or preapproved topic pool. They are not a backlog or preapproved topic pool.')
+s += '\nAlways generate fresh candidates independently; the examples calibrate taste rather than choose the next topic.\n'
 p.write_text(s)
 
-for name in ['short-good-ideas.md', 'long-good-ideas.md']:
+extra_examples = {
+    'short-good-ideas.md': [
+        '- Why two speakers with the same sensitivity spec can demand very different amplifiers',
+        '- The turntable upgrade that can matter more than replacing the cartridge',
+        '- What a balanced headphone output actually changes — and when it changes nothing',
+        '- Why a tiny vintage amplifier can be a better system match than a much more powerful one',
+    ],
+    'long-good-ideas.md': [
+        '- The rise and fall of the separate DAC — what still justifies one today',
+        '- Why some legendary speakers are brutally difficult amplifier loads',
+        '- What modern room correction fixes, what it cannot fix, and where the money belongs first',
+    ],
+}
+for name, additions in extra_examples.items():
     p = prompts / name
     s = p.read_text()
     s = s.replace('not a queue, backlog, or preapproved topic pool.', 'not a queue, backlog, or preapproved topic pool. This is not a backlog or preapproved topic pool. Generate fresh candidates independently every run.')
+    existing = {line.strip() for line in s.splitlines()}
+    for line in additions:
+        if line not in existing:
+            s += line + '\n'
     p.write_text(s)
 
 # Keep the useful legacy epistemic distinction, expressed for audio research.
@@ -32,6 +51,12 @@ p.write_text(s)
 p = root / 'channels/hifi/packaging.md'
 s = p.read_text()
 s += '\nWrite for a buyer or enthusiast seeking a decisive advantage, explanation, or tradeoff—not generic luxury aspiration. Keep physical products plausible: do not distort proportions, controls, driver count, connector layout, finish, or model-defining geometry merely to make a thumbnail more dramatic.\n'
+p.write_text(s)
+
+# The old Coffee ranking phrase was channel-specific residue, not a Universal requirement. Preserve
+# a HiFi-native packaging assertion instead of manufacturing that wording in the new channel.
+p = root / 'test/universal-metadata-packaging.test.mjs'
+s = p.read_text().replace('assert.match(hifi, /Ranked Worst to Best/);', 'assert.match(hifi, /Exact model names matter/);')
 p.write_text(s)
 
 # Case-sensitive legacy QC contract expects the channel key spelling.
