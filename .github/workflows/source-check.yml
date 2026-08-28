@@ -18,7 +18,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: ${{ secrets.SOURCE_REPOSITORY }}
-          ref: a03859862d3054e292a9ce1e7ea878816f2127ce
+          ref: 3f4dd657803705a2520c2da79650afb001cf5b1c
           token: ${{ secrets.SOURCE_REPO_TOKEN }}
           path: source
           persist-credentials: false
