@@ -20,6 +20,21 @@ for p in files:
     s = s.replace('Coffee Explained', 'HiFi Studio').replace('COFFEE', 'HIFI').replace('Coffee', 'HiFi').replace('coffee', 'hifi')
     p.write_text(s)
 
+# Root CI has a cross-channel visual contract outside tools/telic-vnext. Keep it checking the actual
+# two-channel architecture rather than a deleted channel, and assert HiFi-specific visual taste.
+visual_contract = Path('scripts/autopilot/editorial-visuals-contract.test.mjs')
+if not visual_contract.exists():
+    raise SystemExit('Expected root editorial visual contract test missing.')
+s = visual_contract.read_text()
+s = s.replace('coffeePlanEntry', 'hifiPlanEntry').replace('coffeeBuildEntry', 'hifiBuildEntry').replace('coffeeStyle', 'hifiStyle')
+s = s.replace('channels/coffee/', 'channels/hifi/')
+s = s.replace('// Coffee inherits the same quality floor and lean planning while keeping practical buyer/enthusiast taste.', '// HiFi inherits the same quality floor and lean planning while keeping audio-product/engineering taste.')
+s = s.replace('/channels\\/coffee\\/style\\.md/', '/channels\\/hifi\\/style\\.md/')
+s = s.replace("assert.match(hifiStyle, /coffee buyers and enthusiasts/);", "assert.match(hifiStyle, /great sound through specific, consequential audio gear/i);")
+s = s.replace("assert.match(hifiStyle, /Repeated story objects are fine; repeated dominant layouts are not/);", "assert.match(hifiStyle, /exact model names/i);")
+s = s.replace("assert.match(hifiStyle, /Never imply first-person tasting/);", "assert.match(hifiStyle, /Never claim first-person listening/i);")
+visual_contract.write_text(s)
+
 # Registry regression: the second channel exists but is deliberately not production-ready until
 # the real Drive/ChatGPT/instruction IDs are supplied. Do not preserve fake legacy IDs in tests.
 p = root / 'test/channel-registry.test.mjs'
@@ -52,7 +67,7 @@ s = test.read_text()
 s = s.replace('/coffee|espresso|grinder|brewing/i', '/espresso|grinder|brewing|cigar|roast/i')
 test.write_text(s)
 
-# Fail on any real source/docs/test residue, but ignore vendored installed dependencies.
+# Fail on any real vNext source/docs/test residue, but ignore vendored installed dependencies.
 leftovers = []
 for p in root.rglob('*'):
     if not p.is_file() or 'node_modules' in p.parts:
