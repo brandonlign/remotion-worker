@@ -51,8 +51,7 @@ jobs:
         working-directory: source
         run: |
           set -o pipefail
-          python3 ../harness/scripts/hifi-migrate.py 2>&1 | tee /tmp/patch.log
-          python3 ../harness/scripts/hifi-post.py 2>&1 | tee -a /tmp/patch.log
+          python3 ../harness/scripts/hifi-apply.py 2>&1 | tee /tmp/patch.log
           git diff --check
           git status --short
           if git grep -ni coffee -- tools/telic-vnext ':(exclude)tools/telic-vnext/node_modules/**'; then
