@@ -128,3 +128,4 @@ jobs:
           git push origin HEAD:main
 
       # One-shot source mutation harness; remove after the validated push.
+      # Triggered for final validation pass.
