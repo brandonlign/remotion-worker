@@ -29,7 +29,7 @@ jobs:
           set -Eeuo pipefail
           source scripts/ensure-public-rclone.sh
 
-      - name: Clear obsolete Telic render folders
+      - name: Deep-clean remaining obsolete Telic render folders
         shell: bash
         env:
           RCLONE_CONFIG_B64: ${{ secrets.RCLONE_CONFIG_B64 }}
@@ -42,97 +42,75 @@ jobs:
           prepare_rclone_config "The Drive upload secret is not configured."
           validate_drive_file_scope
 
-          # Hard-scope the remote to the already-verified YouTube/Telic/Telic-Renders
-          # provider folder ID. All destructive commands below are relative to it.
+          # Absolute safety boundary: rclone's root is the verified
+          # YouTube/Telic/Telic-Renders provider ID, not My Drive.
           set_drive_root "$TELIC_RENDERS_FOLDER_ID"
 
-          listing="$RUNNER_TEMP/telic-render-folders.json"
-          rclone lsjson gdrive: \
+          rclone lsf gdrive: \
             --config "$RCLONE_CONFIG_FILE" \
             --dirs-only \
             --max-depth 1 \
-            --log-level ERROR > "$listing"
+            --log-level ERROR | sed 's:/$::' > "$RUNNER_TEMP/folders-before.txt"
+          grep -Fxq "$KEEP_JOB" "$RUNNER_TEMP/folders-before.txt"
 
-          python3 - "$listing" "$KEEP_JOB" <<'PY'
-          import json, sys
-          items = json.load(open(sys.argv[1], encoding='utf-8'))
-          keep = sys.argv[2]
-          names = [x.get('Name') for x in items if x.get('IsDir')]
-          if keep not in names:
-              raise SystemExit(f"Refusing cleanup: current job folder {keep!r} is not present in the scoped render root")
-          print(f"Scoped render folders: {len(names)}")
-          print(f"Preserving current job: {keep}")
-          PY
+          echo "Remaining direct-child folders before deep cleanup:"
+          cat "$RUNNER_TEMP/folders-before.txt"
 
-          # Preserve the current job and anything modified within the last two
-          # hours, so a concurrently started render cannot be swept up.
-          cutoff="$(date -u -d '2 hours ago' +%s)"
-          python3 - "$listing" "$KEEP_JOB" "$cutoff" > "$RUNNER_TEMP/delete-folders.txt" <<'PY'
-          import datetime as dt, json, sys
-          items = json.load(open(sys.argv[1], encoding='utf-8'))
-          keep = sys.argv[2]
-          cutoff = int(sys.argv[3])
-          for item in items:
-              if not item.get('IsDir'):
-                  continue
-              name = item.get('Name') or ''
-              if name == keep:
-                  continue
-              raw = item.get('ModTime') or ''
-              recent = False
-              if raw:
-                  try:
-                      stamp = dt.datetime.fromisoformat(raw.replace('Z', '+00:00')).timestamp()
-                      recent = stamp >= cutoff
-                  except ValueError:
-                      pass
-              if recent:
-                  print(f"KEEP_RECENT\t{name}", file=sys.stderr)
-                  continue
-              print(name)
-          PY
-
-          delete_count="$(grep -c . "$RUNNER_TEMP/delete-folders.txt" || true)"
-          echo "Attempting cleanup of $delete_count obsolete direct-child render folders."
-          : > "$RUNNER_TEMP/deleted-folders.txt"
-          : > "$RUNNER_TEMP/blocked-folders.txt"
-
+          : > "$RUNNER_TEMP/blocked-after.txt"
           while IFS= read -r name; do
             [ -n "$name" ] || continue
-            echo "Purging obsolete render folder: $name"
+            [ "$name" = "$KEEP_JOB" ] && continue
+
+            echo "Deep-cleaning legacy folder: $name"
+            # Delete every file this Drive app is individually authorized to
+            # delete. Unauthorized legacy children may remain; errors are
+            # intentionally non-fatal so other files still get cleaned.
+            set +e
+            rclone delete "gdrive:$name" \
+              --config "$RCLONE_CONFIG_FILE" \
+              --retries 1 \
+              --low-level-retries 1 \
+              --rmdirs \
+              --log-level ERROR
+            set -e
+            sleep 1
+
+            # If the directory is now empty/removable, remove it too.
             set +e
             rclone purge "gdrive:$name" \
               --config "$RCLONE_CONFIG_FILE" \
               --retries 1 \
               --low-level-retries 1 \
               --log-level ERROR
-            code=$?
+            purge_code=$?
             set -e
-            if [ "$code" -eq 0 ]; then
-              printf '%s\n' "$name" >> "$RUNNER_TEMP/deleted-folders.txt"
-            else
-              printf '%s\n' "$name" >> "$RUNNER_TEMP/blocked-folders.txt"
-              echo "Skipping inaccessible legacy folder: $name"
+            if [ "$purge_code" -ne 0 ]; then
+              printf '%s\n' "$name" >> "$RUNNER_TEMP/blocked-after.txt"
             fi
-          done < "$RUNNER_TEMP/delete-folders.txt"
+            sleep 1
+          done < "$RUNNER_TEMP/folders-before.txt"
 
-          # Verify the current job still exists and report exactly what remains.
           rclone lsf gdrive: \
             --config "$RCLONE_CONFIG_FILE" \
             --dirs-only \
             --max-depth 1 \
-            --log-level ERROR | sed 's:/$::' > "$RUNNER_TEMP/remaining-folders.txt"
-          grep -Fxq "$KEEP_JOB" "$RUNNER_TEMP/remaining-folders.txt"
+            --log-level ERROR | sed 's:/$::' > "$RUNNER_TEMP/folders-after.txt"
+          grep -Fxq "$KEEP_JOB" "$RUNNER_TEMP/folders-after.txt"
 
-          deleted="$(grep -c . "$RUNNER_TEMP/deleted-folders.txt" || true)"
-          blocked="$(grep -c . "$RUNNER_TEMP/blocked-folders.txt" || true)"
-          remaining="$(grep -c . "$RUNNER_TEMP/remaining-folders.txt" || true)"
-          echo "Deleted folders: $deleted"
-          echo "Blocked legacy folders: $blocked"
-          echo "Remaining direct-child folders: $remaining"
-          if [ "$blocked" -gt 0 ]; then
-            echo "Blocked folders:"
-            cat "$RUNNER_TEMP/blocked-folders.txt"
+          echo "Remaining direct-child folders after deep cleanup:"
+          cat "$RUNNER_TEMP/folders-after.txt"
+          echo "Remaining folder count: $(grep -c . "$RUNNER_TEMP/folders-after.txt" || true)"
+
+          # Read-only size report for what remains inside the hard-scoped
+          # Telic-Renders root. This cannot affect any Drive data.
+          set +e
+          rclone size gdrive: \
+            --config "$RCLONE_CONFIG_FILE" \
+            --json \
+            --log-level ERROR > "$RUNNER_TEMP/remaining-size.json"
+          size_code=$?
+          set -e
+          if [ "$size_code" -eq 0 ]; then
+            echo "Remaining scoped size:"
+            cat "$RUNNER_TEMP/remaining-size.json"
           fi
-          echo "Remaining folders:"
-          cat "$RUNNER_TEMP/remaining-folders.txt"
