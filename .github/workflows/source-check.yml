@@ -3,9 +3,6 @@ name: Source Migration Gate
 on:
   pull_request:
     branches: [main]
-    paths:
-      - .github/workflows/source-check.yml
-      - scripts/hifi-migrate.py
 
 permissions:
   contents: read
