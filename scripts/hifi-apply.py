@@ -9,6 +9,8 @@ if not sep:
     raise SystemExit('Expected final Coffee-residue marker in hifi-migrate.py; harness shape changed.')
 ns = {'__name__': '__main__', '__file__': str(migrate)}
 exec(compile(head, str(migrate), 'exec'), ns, ns)
-post = here / 'hifi-post.py'
-post_ns = {'__name__': '__main__', '__file__': str(post)}
-exec(compile(post.read_text(), str(post), 'exec'), post_ns, post_ns)
+
+for script_name in ['hifi-prompts.py', 'hifi-post.py']:
+    script = here / script_name
+    script_ns = {'__name__': '__main__', '__file__': str(script)}
+    exec(compile(script.read_text(), str(script), 'exec'), script_ns, script_ns)
