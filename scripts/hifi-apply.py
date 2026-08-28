@@ -10,7 +10,7 @@ if not sep:
 ns = {'__name__': '__main__', '__file__': str(migrate)}
 exec(compile(head, str(migrate), 'exec'), ns, ns)
 
-for script_name in ['hifi-prompts.py', 'hifi-post.py']:
+for script_name in ['hifi-prompts.py', 'hifi-post.py', 'hifi-fixes.py']:
     script = here / script_name
     script_ns = {'__name__': '__main__', '__file__': str(script)}
     exec(compile(script.read_text(), str(script), 'exec'), script_ns, script_ns)
