@@ -1,0 +1,113 @@
+name: One-off Telic render storage cleanup
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/drive-cleanup-once.yml
+
+permissions:
+  contents: read
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Check out worker
+        uses: actions/checkout@v4
+
+      - name: Cache public rclone binary
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/telic-tools/rclone-v1.75.0
+          key: telic-rclone-v1.75.0-${{ runner.os }}-${{ runner.arch }}
+
+      - name: Ensure rclone
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          source scripts/ensure-public-rclone.sh
+
+      - name: Clear obsolete Telic render folders
+        shell: bash
+        env:
+          RCLONE_CONFIG_B64: ${{ secrets.RCLONE_CONFIG_B64 }}
+          KEEP_JOB: telic-manual-command-c5d13f6ca5d1fc052181
+          TELIC_RENDERS_FOLDER_ID: 1PdQU0yfeiMtDqpXEueY1HtiM4bGvZpjm
+        run: |
+          set -Eeuo pipefail
+          source scripts/lib/rclone-common.sh
+          trap rclone_cleanup EXIT
+          prepare_rclone_config "The Drive upload secret is not configured."
+          validate_drive_file_scope
+
+          # Hard-scope the remote to the already-verified YouTube/Telic/Telic-Renders
+          # folder. Every destructive command below is relative to this provider ID.
+          set_drive_root "$TELIC_RENDERS_FOLDER_ID"
+
+          listing="$RUNNER_TEMP/telic-render-folders.json"
+          rclone lsjson gdrive: \
+            --config "$RCLONE_CONFIG_FILE" \
+            --dirs-only \
+            --max-depth 1 \
+            --log-level ERROR > "$listing"
+
+          python3 - "$listing" "$KEEP_JOB" <<'PY'
+          import json, sys
+          items = json.load(open(sys.argv[1], encoding='utf-8'))
+          keep = sys.argv[2]
+          names = [x.get('Name') for x in items if x.get('IsDir')]
+          if keep not in names:
+              raise SystemExit(f"Refusing cleanup: current job folder {keep!r} is not present in the scoped render root")
+          print(f"Scoped render folders: {len(names)}")
+          print(f"Preserving current job: {keep}")
+          PY
+
+          # Preserve the known current job plus anything created/modified within
+          # the last two hours, in case another render starts concurrently.
+          cutoff="$(date -u -d '2 hours ago' +%s)"
+          python3 - "$listing" "$KEEP_JOB" "$cutoff" > "$RUNNER_TEMP/delete-folders.txt" <<'PY'
+          import datetime as dt, json, sys
+          items = json.load(open(sys.argv[1], encoding='utf-8'))
+          keep = sys.argv[2]
+          cutoff = int(sys.argv[3])
+          for item in items:
+              if not item.get('IsDir'):
+                  continue
+              name = item.get('Name') or ''
+              if name == keep:
+                  continue
+              raw = item.get('ModTime') or ''
+              recent = False
+              if raw:
+                  try:
+                      stamp = dt.datetime.fromisoformat(raw.replace('Z', '+00:00')).timestamp()
+                      recent = stamp >= cutoff
+                  except ValueError:
+                      pass
+              if recent:
+                  print(f"KEEP_RECENT\t{name}", file=sys.stderr)
+                  continue
+              print(name)
+          PY
+
+          delete_count="$(grep -c . "$RUNNER_TEMP/delete-folders.txt" || true)"
+          echo "Deleting $delete_count obsolete direct-child render folders."
+          while IFS= read -r name; do
+            [ -n "$name" ] || continue
+            echo "Purging obsolete render folder: $name"
+            rclone purge "gdrive:$name" \
+              --config "$RCLONE_CONFIG_FILE" \
+              --log-level ERROR
+          done < "$RUNNER_TEMP/delete-folders.txt"
+
+          # Verify the current job still exists after cleanup.
+          rclone lsf gdrive: \
+            --config "$RCLONE_CONFIG_FILE" \
+            --dirs-only \
+            --max-depth 1 \
+            --log-level ERROR | sed 's:/$::' > "$RUNNER_TEMP/remaining-folders.txt"
+          grep -Fxq "$KEEP_JOB" "$RUNNER_TEMP/remaining-folders.txt"
+          echo "Cleanup complete. Remaining direct-child folders:"
+          cat "$RUNNER_TEMP/remaining-folders.txt"
