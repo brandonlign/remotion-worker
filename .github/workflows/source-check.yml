@@ -114,7 +114,9 @@ jobs:
             echo "deps=$DEPS patch=$PATCH root=$ROOT focused=$FOCUSED vnext=$VNEXT commit=$COMMIT"
             for f in /tmp/patch.log /tmp/root.log /tmp/focused.log /tmp/vnext.log /tmp/syntax.log; do
               [ -f "$f" ] || continue
-              echo; echo "===== $f ====="; tail -n 220 "$f"
+              echo; echo "===== $f FAILURES ====="
+              grep -n -B3 -A24 -E '^not ok |ENOENT|AssertionError|ERR_ASSERTION|ERR_MODULE_NOT_FOUND|testCodeFailure' "$f" || true
+              echo; echo "===== $f TAIL ====="; tail -n 120 "$f"
             done
           } >/tmp/failure.txt
           gh issue create --repo "$GITHUB_REPOSITORY" --title "TEMP HiFi migration failure $GITHUB_RUN_ID" --body-file /tmp/failure.txt
