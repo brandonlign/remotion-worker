@@ -91,7 +91,7 @@ Do not duplicate the production contract here. Read and follow:
 - `tools/telic-vnext/channels/hifi/style.md`
 - `tools/telic-vnext/channels/hifi/research.md`
 
-Universal owns the schema, windowing, procedure, provenance, and quality floor. HiFi-specific planning should prioritize exact equipment/revisions, real internals, manuals/service/patent drawings, traceable measurement plots, archival ads, system diagrams, and authored causal/comparison graphics. Product beauty shots and listening rooms are context, not default evidence. A graph is useful only if its axes, units, source, and relationship to the narration are legible and honest. Do not create `visual-system.json`, nested scene schemas, spec-card templates, waveform wallpaper, or repeated hero-shot holds.
+Universal owns the schema, windowing, procedure, provenance, and quality floor. HiFi-specific planning should prioritize exact equipment/revisions, real internals, manuals/service/patent drawings, traceable measurement plots, archival ads, system diagrams, and authored causal/comparison graphics. Product beauty shots and listening rooms are context, not default evidence. A graph is useful only if its axes, units, source, and relationship to the narration are legible and honest. Keep the channel addition lean: avoid duplicate schema rules, template systems, spec-card grammar, waveform wallpaper, and repeated hero-shot holds.
 ''',
 'long-visual-build-stage.txt': '''HiFi Studio long-form visual-build compatibility entrypoint.
 
