@@ -39,7 +39,12 @@ for name, additions in extra_examples.items():
     for line in additions:
         if line not in existing:
             s += line + '\n'
-    p.write_text(s)
+    lines = []
+    for line in s.splitlines():
+        if line.startswith('- ') and not line.startswith('- **'):
+            line = f'- **{line[2:]}**'
+        lines.append(line)
+    p.write_text('\n'.join(lines) + '\n')
 
 # Keep the useful legacy epistemic distinction, expressed for audio research.
 p = root / 'channels/hifi/research.md'
