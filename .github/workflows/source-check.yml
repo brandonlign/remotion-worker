@@ -105,9 +105,17 @@ jobs:
           git diff --check
           git diff -- tools/telic-vnext/src/native-visual-plan-preflight.mjs tools/telic-vnext/test/native-visual-plan-preflight.test.mjs
 
-      - name: Run full source gate
+      - name: Source gate — root lint and script checks
         working-directory: source
-        run: npm run ci:check
+        run: npm run lint
+
+      - name: Source gate — vNext tests
+        working-directory: source/tools/telic-vnext
+        run: npm test
+
+      - name: Source gate — vNext syntax
+        working-directory: source/tools/telic-vnext
+        run: npm run test:syntax
 
       - name: Commit validated source refactor to main
         working-directory: source
