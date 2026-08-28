@@ -52,10 +52,14 @@ jobs:
         run: |
           set -o pipefail
           python3 ../harness/scripts/hifi-migrate.py 2>&1 | tee /tmp/patch.log
+          python3 ../harness/scripts/hifi-post.py 2>&1 | tee -a /tmp/patch.log
           git diff --check
           git status --short
-          if git grep -ni coffee -- tools/telic-vnext; then
+          if git grep -ni coffee -- tools/telic-vnext ':(exclude)tools/telic-vnext/node_modules/**'; then
             echo 'Coffee residue remains'; exit 1
+          fi
+          if git grep -niE 'espresso|grinder|brewing|cigar|roast' -- tools/telic-vnext/channels/hifi; then
+            echo 'Copied non-HiFi editorial residue remains'; exit 1
           fi
 
       - name: Root CI
