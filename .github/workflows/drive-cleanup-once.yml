@@ -43,7 +43,7 @@ jobs:
           validate_drive_file_scope
 
           # Hard-scope the remote to the already-verified YouTube/Telic/Telic-Renders
-          # folder. Every destructive command below is relative to this provider ID.
+          # provider folder ID. All destructive commands below are relative to it.
           set_drive_root "$TELIC_RENDERS_FOLDER_ID"
 
           listing="$RUNNER_TEMP/telic-render-folders.json"
@@ -64,8 +64,8 @@ jobs:
           print(f"Preserving current job: {keep}")
           PY
 
-          # Preserve the known current job plus anything created/modified within
-          # the last two hours, in case another render starts concurrently.
+          # Preserve the current job and anything modified within the last two
+          # hours, so a concurrently started render cannot be swept up.
           cutoff="$(date -u -d '2 hours ago' +%s)"
           python3 - "$listing" "$KEEP_JOB" "$cutoff" > "$RUNNER_TEMP/delete-folders.txt" <<'PY'
           import datetime as dt, json, sys
@@ -93,21 +93,46 @@ jobs:
           PY
 
           delete_count="$(grep -c . "$RUNNER_TEMP/delete-folders.txt" || true)"
-          echo "Deleting $delete_count obsolete direct-child render folders."
+          echo "Attempting cleanup of $delete_count obsolete direct-child render folders."
+          : > "$RUNNER_TEMP/deleted-folders.txt"
+          : > "$RUNNER_TEMP/blocked-folders.txt"
+
           while IFS= read -r name; do
             [ -n "$name" ] || continue
             echo "Purging obsolete render folder: $name"
+            set +e
             rclone purge "gdrive:$name" \
               --config "$RCLONE_CONFIG_FILE" \
+              --retries 1 \
+              --low-level-retries 1 \
               --log-level ERROR
+            code=$?
+            set -e
+            if [ "$code" -eq 0 ]; then
+              printf '%s\n' "$name" >> "$RUNNER_TEMP/deleted-folders.txt"
+            else
+              printf '%s\n' "$name" >> "$RUNNER_TEMP/blocked-folders.txt"
+              echo "Skipping inaccessible legacy folder: $name"
+            fi
           done < "$RUNNER_TEMP/delete-folders.txt"
 
-          # Verify the current job still exists after cleanup.
+          # Verify the current job still exists and report exactly what remains.
           rclone lsf gdrive: \
             --config "$RCLONE_CONFIG_FILE" \
             --dirs-only \
             --max-depth 1 \
             --log-level ERROR | sed 's:/$::' > "$RUNNER_TEMP/remaining-folders.txt"
           grep -Fxq "$KEEP_JOB" "$RUNNER_TEMP/remaining-folders.txt"
-          echo "Cleanup complete. Remaining direct-child folders:"
+
+          deleted="$(grep -c . "$RUNNER_TEMP/deleted-folders.txt" || true)"
+          blocked="$(grep -c . "$RUNNER_TEMP/blocked-folders.txt" || true)"
+          remaining="$(grep -c . "$RUNNER_TEMP/remaining-folders.txt" || true)"
+          echo "Deleted folders: $deleted"
+          echo "Blocked legacy folders: $blocked"
+          echo "Remaining direct-child folders: $remaining"
+          if [ "$blocked" -gt 0 ]; then
+            echo "Blocked folders:"
+            cat "$RUNNER_TEMP/blocked-folders.txt"
+          fi
+          echo "Remaining folders:"
           cat "$RUNNER_TEMP/remaining-folders.txt"
