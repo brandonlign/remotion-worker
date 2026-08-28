@@ -44,15 +44,15 @@ jobs:
           npm ci
           npm ci --prefix tools/telic-vnext
 
-      - name: Generalize native long-form preflights
+      - name: Generalize native long-form preflights and fixtures
         working-directory: source
         run: |
           python3 - <<'PY'
           from pathlib import Path
 
-          path = Path('tools/telic-vnext/src/native-visual-plan-preflight.mjs')
-          text = path.read_text()
-          replacements = [
+          runtime_path = Path('tools/telic-vnext/src/native-visual-plan-preflight.mjs')
+          runtime = runtime_path.read_text()
+          runtime_replacements = [
               (
                   "if (phase !== 'long_visual_plan' || job?.channelId !== 'telic' || job?.format !== 'long') return null;",
                   "if (phase !== 'long_visual_plan' || job?.format !== 'long') return null;",
@@ -74,15 +74,36 @@ jobs:
                   1,
               ),
           ]
-          for old, new, expected in replacements:
-              count = text.count(old)
+          for old, new, expected in runtime_replacements:
+              count = runtime.count(old)
               if count != expected:
-                  raise SystemExit(f'Expected {expected} occurrence(s) of {old!r}, found {count}; refusing unsafe patch.')
-              text = text.replace(old, new)
-          path.write_text(text)
+                  raise SystemExit(f'Expected {expected} runtime occurrence(s) of {old!r}, found {count}; refusing unsafe patch.')
+              runtime = runtime.replace(old, new)
+          runtime_path.write_text(runtime)
+
+          test_path = Path('tools/telic-vnext/test/native-visual-plan-preflight.test.mjs')
+          test = test_path.read_text()
+          test_replacements = [
+              (
+                  "scripts/autopilot/prepare-telic-visual-plan.mjs",
+                  "scripts/autopilot/prepare-long-visual-plan.mjs",
+                  1,
+              ),
+              (
+                  "validate-telic-long-visuals.mjs",
+                  "validate-long-visuals.mjs",
+                  1,
+              ),
+          ]
+          for old, new, expected in test_replacements:
+              count = test.count(old)
+              if count != expected:
+                  raise SystemExit(f'Expected {expected} fixture occurrence(s) of {old!r}, found {count}; refusing unsafe patch.')
+              test = test.replace(old, new)
+          test_path.write_text(test)
           PY
           git diff --check
-          git diff -- tools/telic-vnext/src/native-visual-plan-preflight.mjs
+          git diff -- tools/telic-vnext/src/native-visual-plan-preflight.mjs tools/telic-vnext/test/native-visual-plan-preflight.test.mjs
 
       - name: Run full source gate
         working-directory: source
@@ -93,7 +114,7 @@ jobs:
         run: |
           git config user.name "Telic Controller"
           git config user.email "telic-controller@users.noreply.github.com"
-          git add tools/telic-vnext/src/native-visual-plan-preflight.mjs
+          git add tools/telic-vnext/src/native-visual-plan-preflight.mjs tools/telic-vnext/test/native-visual-plan-preflight.test.mjs
           git diff --cached --quiet && { echo "Expected native preflight changes but found none"; exit 1; }
           git commit -m "Generalize native long preflights across channels"
           git push origin HEAD:main
