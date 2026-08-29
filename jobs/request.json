@@ -1,5 +1,6 @@
 {
-  "jobId": "telic-initial-001",
-  "sourceSha": "4b9bac6c4cac3e334deb1e9bf3da04f21e32228b",
-  "revision": 1
+  "jobId": "hifi-manual-command-93f5b93a190e3b9de1e9",
+  "sourceSha": "1263716b33d4a43fae2889eb854a30b5bce55867",
+  "revision": 1,
+  "mode": "voice-prep"
 }
