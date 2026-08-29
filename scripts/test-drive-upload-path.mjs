@@ -15,6 +15,7 @@ const validator = fs.readFileSync(new URL("./validate-job.mjs", import.meta.url)
 
 assert.match(routing, /telic\)[\s\S]*'YouTube\/Telic\/Telic-Renders'/);
 assert.match(routing, /coffee\)[\s\S]*'YouTube\/Coffee\/Renders'/);
+assert.match(routing, /hifi\)[\s\S]*'YouTube\/HiFi Studio\/Renders'/);
 assert.match(routing, /Unsupported render channel/);
 assert.match(upload, /RENDER_ROOT_PATH="\$\(render_root_for_job_id "\$JOB_ID"\)"/);
 assert.match(upload, /JOB_TARGET_PATH="\$RENDER_ROOT_PATH\/\$JOB_ID"/);
@@ -34,7 +35,7 @@ assert.match(rcloneCommon, /must include drive\.file and may only add the read-o
 assert.doesNotMatch(upload, /auth\/drive["']/);
 assert.doesNotMatch(previewUpload, /auth\/drive["']/);
 assert.match(restore, /VOICE_ROOT_PATH="\$\(render_root_for_job_id "\$JOB_ID"\)\/\$JOB_ID"/);
-assert.match(validator, /supportedChannels = new Set\(\["telic", "coffee"\]\)/);
+assert.match(validator, /supportedChannels = new Set\(\["telic", "coffee", "hifi"\]\)/);
 assert.match(validator, /channel_id=\$\{channelId\}/);
 
 // Public request data must not be able to provide an arbitrary Drive path.
