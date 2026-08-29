@@ -20,7 +20,7 @@ if (typeof request.jobId !== "string" || !/^[a-z0-9][a-z0-9-]{5,63}$/.test(reque
   throw new Error("jobId must be 6-64 lowercase letters, numbers, or hyphens.");
 }
 const channelId = request.jobId.split("-", 1)[0];
-const supportedChannels = new Set(["telic", "coffee"]);
+const supportedChannels = new Set(["telic", "coffee", "hifi"]);
 if (!supportedChannels.has(channelId)) {
   throw new Error(`Unsupported channel prefix in jobId: ${channelId}`);
 }
