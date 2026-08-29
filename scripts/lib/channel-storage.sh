@@ -23,6 +23,10 @@ channel_render_root() {
       # its publishing identity and production hub are complete.
       printf '%s\n' 'YouTube/Coffee/Renders'
       ;;
+    hifi)
+      # HiFi Studio uses its channel-owned render tree.
+      printf '%s\n' 'YouTube/HiFi Studio/Renders'
+      ;;
     *)
       echo "Unsupported render channel: $channel_id" >&2
       return 64
