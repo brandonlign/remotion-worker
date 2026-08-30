@@ -20,7 +20,7 @@ assert.match(script, /"\$tool" "\$@"/);
 assert.match(script, /split=outputs=3\[review\]\[chron\]\[sheet\]/);
 assert.match(script, /\[review\]scale=w=540:h=-2\[review_out\]/);
 assert.match(script, /\[chron\]fps=fps=\$\{REVIEW_FPS\},scale=w=360:h=-2\[keyframes_out\]/);
-assert.match(script, /\[sheet\]fps=fps=\$\{REVIEW_FPS\},scale=w=210:h=-2,tile=layout=5x4:padding=8:margin=8\[sheet_out\]/);
+assert.match(script, /\[sheet\]fps=fps=\$\{REVIEW_FPS\},scale=w=210:h=-2,tile=layout=\$\{REVIEW_TILE_LAYOUT\}:padding=8:margin=8\[sheet_out\]/);
 assert.match(script, /-map "\[review_out\]"/);
 assert.match(script, /-map "0:a\?"/);
 assert.match(script, /-preset veryfast/);
@@ -32,7 +32,36 @@ assert.match(script, /"\$OUTPUT_DIR\/review\.mp4" \\\n    -map "\[keyframes_out\
 // the derivative-still decode.
 assert.match(script, /fps=fps=\$\{REVIEW_FPS\},split=outputs=2\[keyframes\]\[sheet\]/);
 assert.match(script, /\[keyframes\]scale=w=360:h=-2\[keyframes_out\]/);
-assert.match(script, /\[sheet\]scale=w=210:h=-2,tile=layout=5x4:padding=8:margin=8\[sheet_out\]/);
+assert.match(script, /\[sheet\]scale=w=210:h=-2,tile=layout=\$\{REVIEW_TILE_LAYOUT\}:padding=8:margin=8\[sheet_out\]/);
+
+// The contact sheet is whole-video progression evidence for creative QC. A
+// hardcoded 5x4 grid holds only 20 tiles, so a long-form render sampling 48
+// frames silently truncated the sheet to the first ~43% of the video and threw
+// the rest away. The grid must be derived from the real sample count.
+assert.doesNotMatch(script, /tile=layout=5x4/, "the contact-sheet grid must not be hardcoded");
+assert.match(script, /REVIEW_TILE_LAYOUT=/);
+assert.match(script, /const sampled = Math\.max\(1, Math\.ceil\(duration \* fps\)\)/);
+assert.match(script, /const columns = Math\.max\(1, Math\.ceil\(Math\.sqrt\(sampled\)\)\)/);
+assert.match(script, /const rows = Math\.max\(1, Math\.ceil\(sampled \/ columns\)\)/);
+
+// Every sampled frame must fit the derived grid for both real format policies.
+for (const [label, durationSeconds, maximumFrames] of [
+  ["short", 32, 20],
+  ["long", 720, 48],
+  ["long-short-runtime", 240, 48],
+  ["sequence-preview", 90, 0],
+]) {
+  const fps = maximumFrames > 0
+    ? Math.min(0.5, Math.max(3, maximumFrames - 1) / durationSeconds)
+    : 0.5;
+  const sampled = Math.max(1, Math.ceil(durationSeconds * fps));
+  const columns = Math.max(1, Math.ceil(Math.sqrt(sampled)));
+  const rows = Math.max(1, Math.ceil(sampled / columns));
+  assert.ok(
+    columns * rows >= sampled,
+    `${label}: derived ${columns}x${rows} grid must hold all ${sampled} sampled frames`,
+  );
+}
 
 // Sequence previews retain the established 0.5 fps cadence, while full renders
 // can cap extraction to the maximum number of review frames the quality policy

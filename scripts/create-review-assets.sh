@@ -58,9 +58,16 @@ fi
 # Sequence previews keep the established 0.5 fps cadence. Full renders pass
 # the quality policy's maximumFrames so we never decode/write hundreds of
 # review JPEGs only for the quality gate to discard most of them.
+#
+# The contact-sheet tile grid must hold EVERY sampled frame. tile= emits a new
+# image once the grid fills, and the sheet is written with -frames:v 1, so a
+# grid smaller than the sample count silently truncates the diagnostic to the
+# first N frames and discards the rest of the video. QC treats this sheet as
+# whole-video progression evidence, so the grid is derived from the real sample
+# count instead of being hardcoded.
 REVIEW_FPS="0.5"
-if [ "$MAXIMUM_REVIEW_FRAMES" -gt 0 ]; then
-  REVIEW_FPS="$(node - "$OUTPUT_DIR/media-metadata.json" "$MAXIMUM_REVIEW_FRAMES" <<'NODE'
+REVIEW_TILE_LAYOUT="5x4"
+REVIEW_PLAN="$(node - "$OUTPUT_DIR/media-metadata.json" "$MAXIMUM_REVIEW_FRAMES" <<'NODE'
 const fs = require('node:fs');
 const [metadataPath, maximumRaw] = process.argv.slice(2);
 const metadata = JSON.parse(fs.readFileSync(metadataPath, 'utf8'));
@@ -69,11 +76,27 @@ const streams = Array.isArray(metadata.streams) ? metadata.streams : [];
 const video = streams.find((stream) => stream.codec_type === 'video');
 const duration = Number(metadata.format?.duration ?? video?.duration);
 if (!Number.isFinite(duration) || duration <= 0) throw new Error('Review media duration is invalid.');
-if (!Number.isInteger(maximumFrames) || maximumFrames < 3) throw new Error('maximum-review-frames must be at least 3 when enabled.');
-const fps = Math.min(0.5, Math.max(3, maximumFrames - 1) / duration);
-process.stdout.write(fps.toFixed(8).replace(/0+$/, '').replace(/\.$/, ''));
+
+let fps = 0.5;
+if (maximumFrames > 0) {
+  if (!Number.isInteger(maximumFrames) || maximumFrames < 3) throw new Error('maximum-review-frames must be at least 3 when enabled.');
+  fps = Math.min(0.5, Math.max(3, maximumFrames - 1) / duration);
+}
+
+// Mirror the ffmpeg fps filter: it emits a frame per 1/fps window across the
+// stream, so ceil rather than floor to avoid a short-by-one grid.
+const sampled = Math.max(1, Math.ceil(duration * fps));
+const columns = Math.max(1, Math.ceil(Math.sqrt(sampled)));
+const rows = Math.max(1, Math.ceil(sampled / columns));
+process.stdout.write(`${fps.toFixed(8).replace(/0+$/, '').replace(/\.$/, '')} ${columns}x${rows}`);
 NODE
 )"
+REVIEW_FPS="${REVIEW_PLAN%% *}"
+REVIEW_TILE_LAYOUT="${REVIEW_PLAN##* }"
+
+if [ -z "$REVIEW_FPS" ] || [ -z "$REVIEW_TILE_LAYOUT" ]; then
+  echo "Failed to resolve the review sampling plan." >&2
+  exit 65
 fi
 
 if [ "$REUSE_SOURCE_AS_REVIEW" = "1" ]; then
@@ -84,7 +107,7 @@ if [ "$REUSE_SOURCE_AS_REVIEW" = "1" ]; then
     -loglevel error \
     -y \
     -i "$VIDEO" \
-    -filter_complex "[0:v]fps=fps=${REVIEW_FPS},split=outputs=2[keyframes][sheet];[keyframes]scale=w=360:h=-2[keyframes_out];[sheet]scale=w=210:h=-2,tile=layout=5x4:padding=8:margin=8[sheet_out]" \
+    -filter_complex "[0:v]fps=fps=${REVIEW_FPS},split=outputs=2[keyframes][sheet];[keyframes]scale=w=360:h=-2[keyframes_out];[sheet]scale=w=210:h=-2,tile=layout=${REVIEW_TILE_LAYOUT}:padding=8:margin=8[sheet_out]" \
     -map "[keyframes_out]" \
     -q:v 3 \
     "$OUTPUT_DIR/keyframes/frame-%03d.jpg" \
@@ -102,7 +125,7 @@ else
     -loglevel error \
     -y \
     -i "$VIDEO" \
-    -filter_complex "[0:v]split=outputs=3[review][chron][sheet];[review]scale=w=540:h=-2[review_out];[chron]fps=fps=${REVIEW_FPS},scale=w=360:h=-2[keyframes_out];[sheet]fps=fps=${REVIEW_FPS},scale=w=210:h=-2,tile=layout=5x4:padding=8:margin=8[sheet_out]" \
+    -filter_complex "[0:v]split=outputs=3[review][chron][sheet];[review]scale=w=540:h=-2[review_out];[chron]fps=fps=${REVIEW_FPS},scale=w=360:h=-2[keyframes_out];[sheet]fps=fps=${REVIEW_FPS},scale=w=210:h=-2,tile=layout=${REVIEW_TILE_LAYOUT}:padding=8:margin=8[sheet_out]" \
     -map "[review_out]" \
     -map "0:a?" \
     -c:v libx264 \
