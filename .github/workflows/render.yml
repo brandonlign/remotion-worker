@@ -1,5 +1,7 @@
 name: Render private Remotion source
 
+run-name: Render private Remotion source (${{ github.event.workflow_run.head_branch }} @ ${{ github.event.workflow_run.head_sha }})
+
 on:
   workflow_run:
     workflows: [Worker CI]
