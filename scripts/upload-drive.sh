@@ -68,6 +68,20 @@ else
   TARGET_PATH="$JOB_TARGET_PATH/diagnostics/revision-$REVISION"
 fi
 
+# Controller-owned long-form voice artifacts are restored into the private
+# source before a render and already live in the canonical job folder. The
+# worker credential intentionally uses the restricted `drive.file` scope, so
+# attempting to overwrite those files can fail with appNotAuthorizedToFile even
+# though the render itself is valid. A canonical render owns the pixels and
+# handoff artifacts; leave the immutable voice package to its controller owner.
+RCLONE_COPY_EXCLUDES=()
+if [ "$DELIVERY_KIND" = "success" ] && [ -s "$RESULT_DIR/final.mp4" ]; then
+  RCLONE_COPY_EXCLUDES+=(
+    --exclude 'alignment.json'
+    --exclude 'audio-runtime.json'
+  )
+fi
+
 rclone copy \
   "$RESULT_DIR" \
   "gdrive:$TARGET_PATH" \
@@ -75,4 +89,5 @@ rclone copy \
   --transfers 4 \
   --checkers 8 \
   --stats 0 \
-  --log-level ERROR
+  --log-level ERROR \
+  "${RCLONE_COPY_EXCLUDES[@]}"
