@@ -40,8 +40,6 @@ try {
   assert.equal(verified.format, "long");
   assert.equal(verified.voiceoverSha256, hash);
 
-  // Voice-prep may retain descriptive beat text that the later frozen runtime
-  // strips. This metadata does not alter the waveform or exact timing contract.
   await fs.writeFile(driveRuntimePath, `${JSON.stringify({
     ...runtime,
     beats: runtime.beats.map((beat) => ({...beat, purpose: "descriptive label", narration: "spoken text retained by voice prep"})),
@@ -120,16 +118,15 @@ try {
   assert.doesNotMatch(restoreScript, /use_telic_renders_root/);
   assert.doesNotMatch(restoreScript, /TELIC_AUDIO_LOCATOR_DIR/);
 
-  // Provider-ID copy is allowed only for private channel assets whose source
-  // filename+ID tuple was first verified by a raw Drive query constrained to
-  // its declared parent folder. Voice restoration remains path-rooted and no
-  // opaque locator cache returns.
-  assert.match(restoreScript, /rclone backend query gdrive:/);
-  assert.match(restoreScript, /in parents and trashed = false/);
-  assert.match(restoreScript, /expected\.add\(\(file_name, drive_file_id\)\)/);
-  assert.match(restoreScript, /\(item\.get\("name"\), item\.get\("id"\)\)/);
+  // Provider-ID copies are allowed only for private channel assets whose exact
+  // tuple has first been validated against the immutable controller-authorized
+  // source registry. Voice restoration remains path-rooted, and live Drive
+  // listing/query ambiguity is not part of the trust decision.
+  assert.match(restoreScript, /read-private-music-request\.mjs" \\\n  "\$AUDIO_REQUEST_FILE" "\$SOURCE_DIR"/);
   assert.match(restoreScript, /rclone backend copyid gdrive: "\$drive_file_id" "\$restored"/);
   assert.equal((restoreScript.match(/backend copyid/g) ?? []).length, 1);
+  assert.doesNotMatch(restoreScript, /rclone backend query gdrive:/);
+  assert.doesNotMatch(restoreScript, /rclone lsjson gdrive:/);
 } finally {
   await fs.rm(temp, {recursive: true, force: true});
 }
