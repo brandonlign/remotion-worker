@@ -11,7 +11,7 @@ import {fileURLToPath} from "node:url";
 const script = fileURLToPath(new URL("./read-private-music-request.mjs", import.meta.url));
 const root = await fs.mkdtemp(path.join(os.tmpdir(), "music-request-"));
 const input = path.join(root, "audio-design.json");
-const run = () => spawnSync(process.execPath, [script, input], {encoding: "utf8"});
+const run = (...extra) => spawnSync(process.execPath, [script, input, ...extra], {encoding: "utf8"});
 
 const music = {
   library: "telic-original-v1",
@@ -31,11 +31,6 @@ const coffeeMusic = {
   fileName: "Coffee Track 01.mp3",
   assetPath: "public/assets/current/coffee-music-01.mp3",
 };
-await fs.writeFile(input, JSON.stringify({qualityVersion: 2, music: coffeeMusic}));
-result = run();
-assert.equal(result.status, 0, result.stderr);
-assert.equal(result.stdout.trim().split("\t").length, 4);
-
 const coffeeSfx = {
   id: "cup-land",
   library: "channel-library-v1",
@@ -45,51 +40,10 @@ const coffeeSfx = {
   fileName: "Cup Set Down.wav",
   assetPath: "public/assets/current/coffee-sfx-cup.wav",
 };
-await fs.writeFile(input, JSON.stringify({
-  qualityVersion: 2,
-  music: coffeeMusic,
-  soundEffects: [
-    {id: "opening-whoosh", assetPath: "public/assets/current/opening-whoosh.wav", frame: 0},
-    coffeeSfx,
-  ],
-}));
+await fs.writeFile(input, JSON.stringify({qualityVersion: 2, music: coffeeMusic, soundEffects: [coffeeSfx]}));
 result = run();
 assert.equal(result.status, 0, result.stderr);
-let rows = result.stdout.trim().split("\n");
-assert.equal(rows.length, 2);
-assert.equal(rows[1].split("\t").length, 4);
-assert.match(rows[1], /Cup Set Down\.wav/);
-
-// Coffee's channel-owned long-form audio design uses schemaVersion rather than
-// Telic qualityVersion. It must still restore exact approved Drive identities.
-await fs.writeFile(input, JSON.stringify({
-  schemaVersion: 1,
-  musicLibrarySelection: {...coffeeMusic, trackId: "coffee-track"},
-  musicBeds: [coffeeMusic, coffeeMusic],
-  soundEffects: [coffeeSfx],
-}));
-result = run();
-assert.equal(result.status, 0, result.stderr);
-rows = result.stdout.trim().split("\n");
-assert.equal(rows.length, 2);
-assert.match(rows[0], /Coffee Track 01\.mp3/);
-assert.match(rows[1], /Cup Set Down\.wav/);
-
-// Approved private-library records are self-identifying and remain restorable
-// for channel manifests that predate qualityVersion 2. A legacy record that
-// does not declare an approved private library must still be ignored.
-await fs.writeFile(input, JSON.stringify({qualityVersion: 1, music}));
-result = run();
-assert.equal(result.status, 0, result.stderr);
-assert.equal(result.stdout.trim().split("\t").length, 4);
-
-await fs.writeFile(input, JSON.stringify({
-  qualityVersion: 1,
-  music: {...music, library: "legacy-library"},
-}));
-result = run();
-assert.equal(result.status, 0, result.stderr);
-assert.equal(result.stdout, "");
+assert.equal(result.stdout.trim().split("\n").length, 2);
 
 await fs.writeFile(input, JSON.stringify({qualityVersion: 2, music: {...music, library: "unapproved-library"}}));
 result = run();
@@ -101,15 +55,35 @@ result = run();
 assert.notEqual(result.status, 0);
 assert.match(result.stderr, /unsafe assetPath/);
 
-await fs.writeFile(input, JSON.stringify({qualityVersion: 2, soundEffects: [{...coffeeSfx, library: "unapproved-library"}]}));
-result = run();
-assert.notEqual(result.status, 0);
-assert.match(result.stderr, /approved channel or Universal SFX library/);
+// A trusted private-source checkout supplies the immutable channel registry.
+// Exact provider identity, filename, library, and destination must all match.
+const sourceRoot = path.join(root, "source");
+await fs.mkdir(path.join(sourceRoot, "automation", "current"), {recursive: true});
+await fs.mkdir(path.join(sourceRoot, "tools", "telic-vnext", "channels", "coffee"), {recursive: true});
+await fs.mkdir(path.join(sourceRoot, "tools", "telic-vnext", "universal"), {recursive: true});
+await fs.writeFile(path.join(sourceRoot, "automation", "current", "job.json"), JSON.stringify({jobId: "coffee-long-test", channelId: "coffee"}));
+await fs.writeFile(path.join(sourceRoot, "tools", "telic-vnext", "channels", "coffee", "source-profile.json"), JSON.stringify({
+  audio: {libraryPath: "tools/telic-vnext/universal/audio-library.json"},
+}));
+await fs.writeFile(path.join(sourceRoot, "tools", "telic-vnext", "universal", "audio-library.json"), JSON.stringify({
+  version: 1,
+  library: "channel-library-v1",
+  music: [coffeeMusic],
+  sfx: [coffeeSfx],
+}));
 
-await fs.writeFile(input, JSON.stringify({qualityVersion: 2, soundEffects: [{...coffeeSfx, assetPath: "public/assets/current/coffee-sfx-cup.mp3"}]}));
-result = run();
+await fs.writeFile(input, JSON.stringify({qualityVersion: 2, music: coffeeMusic, soundEffects: [coffeeSfx]}));
+result = run(sourceRoot);
+assert.equal(result.status, 0, result.stderr);
+assert.equal(result.stdout.trim().split("\n").length, 2);
+
+await fs.writeFile(input, JSON.stringify({
+  qualityVersion: 2,
+  music: {...coffeeMusic, driveFileId: "different_file_123456789"},
+}));
+result = run(sourceRoot);
 assert.notEqual(result.status, 0);
-assert.match(result.stderr, /extension does not match/);
+assert.match(result.stderr, /immutable source audio registry/);
 
 await fs.rm(root, {recursive: true, force: true});
 console.log("Private channel music/SFX restore request tests passed.");

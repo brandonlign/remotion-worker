@@ -58,9 +58,6 @@ AUDIO_FILE="$SOURCE_DIR/public/automation/voiceover.mp3"
 ALIGNMENT_FILE="$SOURCE_DIR/automation/current/alignment.json"
 SOURCE_RUNTIME_FILE="$SOURCE_DIR/automation/current/audio-runtime.json"
 
-# Restore the immutable voice package with one provider copy instead of
-# starting a separate rclone process for each file. Sequence previews need only
-# the voiceover; complete previews and full renders also need the alignment/runtime pair.
 printf '%s\n' 'voiceover.mp3' > "$VOICE_NAMES_FILE"
 if [ "$RESTORE_MODE" = "render" ] || [ "$RESTORE_MODE" = "long-preview" ]; then
   printf '%s\n' 'alignment.json' 'audio-runtime.json' >> "$VOICE_NAMES_FILE"
@@ -99,95 +96,47 @@ else
     "$AUDIO_FILE")"
 
   case "$RESTORE_FORMAT" in
-    long)
-      ;;
-    short)
-      cp "$DRIVE_RUNTIME_FILE" "$SOURCE_RUNTIME_FILE"
-      ;;
-    *)
-      rclone_fail "Audio restore verifier returned an unsupported format: $RESTORE_FORMAT"
-      ;;
+    long) ;;
+    short) cp "$DRIVE_RUNTIME_FILE" "$SOURCE_RUNTIME_FILE" ;;
+    *) rclone_fail "Audio restore verifier returned an unsupported format: $RESTORE_FORMAT" ;;
   esac
 fi
 
-# Productions may request approved channel-owned music and SFX through the
-# private audio-design.json. The private source validates the exact allowlist.
-# This worker transports only those requested Drive files and never commits or
-# logs proprietary media publicly.
+# The checked-out private source is immutable at the controller-authorized SHA.
+# Validate every requested channel asset against that source's committed audio
+# registry before using Drive's provider-ID copy primitive. This is deterministic
+# even when Drive contains duplicate filenames and prevents a public worker
+# request from supplying an arbitrary provider locator.
 AUDIO_REQUEST_FILE="$SOURCE_DIR/automation/current/audio-design.json"
-if ! node "$WORKER_ROOT/scripts/read-private-music-request.mjs" "$AUDIO_REQUEST_FILE" > "$AUDIO_ROWS_FILE"; then
+if ! node "$WORKER_ROOT/scripts/read-private-music-request.mjs" \
+  "$AUDIO_REQUEST_FILE" "$SOURCE_DIR" > "$AUDIO_ROWS_FILE"; then
   rclone_fail "The private channel audio restore request could not be validated."
 fi
 
 RESTORED_PRIVATE_AUDIO_COUNT=0
-if [ -s "$AUDIO_ROWS_FILE" ]; then
-  # Verify every requested provider identity against the declared Drive folder
-  # using Drive's raw query API, then copy by provider ID. The worker first
-  # scopes the remote to that declared folder, matching the historical trust
-  # boundary for channel audio that may live outside the render root. A path
-  # listing can collapse duplicate names; the raw query preserves every object.
-  while IFS= read -r drive_folder_id; do
-    [ -n "$drive_folder_id" ] || continue
-    GROUP_ROWS_FILE="$(mktemp)"
-    GROUP_LISTING_FILE="$(mktemp)"
-    GROUP_STAGE_DIR="$PRIVATE_AUDIO_STAGE_DIR/$drive_folder_id"
-    mkdir -p "$GROUP_STAGE_DIR"
+while IFS=$'\t' read -r drive_folder_id drive_file_id file_name asset_path; do
+  [ -n "$drive_folder_id" ] || continue
+  if [ -z "$drive_file_id" ] || [ -z "$file_name" ] || [ -z "$asset_path" ]; then
+    rclone_fail "The private channel audio restore request is incomplete."
+  fi
 
-    awk -F $'\t' -v folder="$drive_folder_id" '$1 == folder' "$AUDIO_ROWS_FILE" > "$GROUP_ROWS_FILE"
-    set_drive_root "$drive_folder_id"
-    rclone backend query gdrive: "'$drive_folder_id' in parents and trashed = false" \
-      --config "$RCLONE_CONFIG_FILE" \
-      --log-level ERROR > "$GROUP_LISTING_FILE"
+  item_stage="$PRIVATE_AUDIO_STAGE_DIR/$drive_file_id"
+  mkdir -p "$item_stage"
+  restored="$item_stage/$file_name"
+  rclone backend copyid gdrive: "$drive_file_id" "$restored" \
+    --config "$RCLONE_CONFIG_FILE" \
+    --stats 0 \
+    --log-level ERROR >/dev/null
+  if [ ! -s "$restored" ]; then
+    rclone_fail "A selected private channel audio file was not restored."
+  fi
 
-    python3 - "$GROUP_ROWS_FILE" "$GROUP_LISTING_FILE" <<'PY'
-import json
-import sys
-
-rows_path, listing_path = sys.argv[1:]
-expected = set()
-with open(rows_path, encoding="utf-8") as handle:
-    for raw in handle:
-        parts = raw.rstrip("\n").split("\t")
-        if len(parts) != 4:
-            raise SystemExit("The private channel audio restore request is incomplete.")
-        _, drive_file_id, file_name, _ = parts
-        expected.add((file_name, drive_file_id))
-
-with open(listing_path, encoding="utf-8") as handle:
-    listing = json.load(handle)
-actual = {
-    (item.get("name"), item.get("id"))
-    for item in listing
-    if isinstance(item, dict) and item.get("name") and item.get("id")
-}
-for identity in expected:
-    if identity not in actual:
-        raise SystemExit("A selected private channel audio file failed provider identity verification.")
-PY
-
-    while IFS=$'\t' read -r _ drive_file_id file_name asset_path; do
-      if [ -z "$drive_file_id" ] || [ -z "$file_name" ] || [ -z "$asset_path" ]; then
-        rclone_fail "The private channel audio restore request is incomplete."
-      fi
-      restored="$GROUP_STAGE_DIR/$file_name"
-      rm -f "$restored"
-      rclone backend copyid gdrive: "$drive_file_id" "$restored" \
-        --config "$RCLONE_CONFIG_FILE" \
-        --stats 0 \
-        --log-level ERROR >/dev/null
-      if [ ! -s "$restored" ]; then
-        rclone_fail "A selected private channel audio file was not restored."
-      fi
-      destination="$SOURCE_DIR/$asset_path"
-      mkdir -p "$(dirname "$destination")"
-      cp "$restored" "$destination"
-      RESTORED_PRIVATE_AUDIO_COUNT=$((RESTORED_PRIVATE_AUDIO_COUNT + 1))
-    done < "$GROUP_ROWS_FILE"
-
-    rm -f "$GROUP_ROWS_FILE" "$GROUP_LISTING_FILE"
-  done < <(cut -f1 "$AUDIO_ROWS_FILE" | sort -u)
-fi
+  destination="$SOURCE_DIR/$asset_path"
+  mkdir -p "$(dirname "$destination")"
+  cp "$restored" "$destination"
+  RESTORED_PRIVATE_AUDIO_COUNT=$((RESTORED_PRIVATE_AUDIO_COUNT + 1))
+done < "$AUDIO_ROWS_FILE"
 
 if [ "$RESTORED_PRIVATE_AUDIO_COUNT" -gt 0 ]; then
-  echo "Restored $RESTORED_PRIVATE_AUDIO_COUNT private channel audio asset(s)."
+  echo "Restored $RESTORED_PRIVATE_AUDIO_COUNT private channel audio asset(s) from source-registered provider identities."
 fi
