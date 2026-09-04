@@ -78,9 +78,8 @@ const renderMoments = async (videoPath, compositionPath, outputDir) => {
   const tempPattern = path.join(tempDir, "frame-%03d.jpg");
 
   try {
-    // Decode the rendered video once and select every semantic target by exact
-    // frame number. The previous implementation launched one separate ffmpeg
-    // seek/decode for each review moment, repeating the same media work 3-8x.
+    // Select exact frames in one pass and stop after the last unique target.
+    // Targeted reviews need not decode the remainder of a long video.
     await run("ffmpeg", [
       "-hide_banner",
       "-loglevel", "error",
@@ -88,6 +87,7 @@ const renderMoments = async (videoPath, compositionPath, outputDir) => {
       "-i", videoPath,
       "-vf", plan.filter,
       "-fps_mode", "vfr",
+      "-frames:v", String(plan.frames.length),
       "-start_number", "1",
       "-q:v", "2",
       tempPattern,

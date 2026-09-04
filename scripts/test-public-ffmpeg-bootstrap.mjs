@@ -19,9 +19,7 @@ assert.match(script, /checksums\.sha256/);
 assert.match(script, /sha256sum --check --status/);
 
 // A cached/downloaded binary is accepted only if the exact review filters exist.
-for (const filter of ["fps", "tile", "split", "scale"]) {
-  assert.match(script, new RegExp(`for filter in fps tile split scale`));
-}
+assert.match(script, /for filter in fps tile split scale/);
 assert.match(script, /ffmpeg_has_required_filters/);
 assert.match(script, /find "\$extract_dir" -type f -path '\*\/bin\/ffmpeg'/);
 assert.match(script, /find "\$extract_dir" -type f -path '\*\/bin\/ffprobe'/);
