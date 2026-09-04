@@ -121,10 +121,10 @@ fi
 
 RESTORED_PRIVATE_AUDIO_COUNT=0
 if [ -s "$AUDIO_ROWS_FILE" ]; then
-  # Verify every requested provider identity against the approved Drive folder,
-  # then copy by provider ID rather than by filename. Google Drive permits
-  # duplicate filenames; filename-only copying can silently select the wrong
-  # object even when the source locked the correct provider ID.
+  # Verify every requested provider identity against the declared Drive folder
+  # using Drive's raw query API, then copy by provider ID. A path listing can
+  # collapse or rewrite duplicate names; the raw query preserves each provider
+  # object and its exact ID while the parent clause keeps the trust boundary.
   while IFS= read -r drive_folder_id; do
     [ -n "$drive_folder_id" ] || continue
     GROUP_ROWS_FILE="$(mktemp)"
@@ -133,11 +133,8 @@ if [ -s "$AUDIO_ROWS_FILE" ]; then
     mkdir -p "$GROUP_STAGE_DIR"
 
     awk -F $'\t' -v folder="$drive_folder_id" '$1 == folder' "$AUDIO_ROWS_FILE" > "$GROUP_ROWS_FILE"
-    set_drive_root "$drive_folder_id"
-    rclone lsjson gdrive: \
+    rclone backend query gdrive: "'$drive_folder_id' in parents and trashed = false" \
       --config "$RCLONE_CONFIG_FILE" \
-      --files-only \
-      --max-depth 1 \
       --log-level ERROR > "$GROUP_LISTING_FILE"
 
     python3 - "$GROUP_ROWS_FILE" "$GROUP_LISTING_FILE" <<'PY'
@@ -157,9 +154,9 @@ with open(rows_path, encoding="utf-8") as handle:
 with open(listing_path, encoding="utf-8") as handle:
     listing = json.load(handle)
 actual = {
-    (item.get("Name"), item.get("ID"))
+    (item.get("name"), item.get("id"))
     for item in listing
-    if isinstance(item, dict) and item.get("Name") and item.get("ID") and not item.get("IsDir")
+    if isinstance(item, dict) and item.get("name") and item.get("id")
 }
 for identity in expected:
     if identity not in actual:
