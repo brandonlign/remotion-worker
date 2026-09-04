@@ -122,9 +122,10 @@ fi
 RESTORED_PRIVATE_AUDIO_COUNT=0
 if [ -s "$AUDIO_ROWS_FILE" ]; then
   # Verify every requested provider identity against the declared Drive folder
-  # using Drive's raw query API, then copy by provider ID. A path listing can
-  # collapse or rewrite duplicate names; the raw query preserves each provider
-  # object and its exact ID while the parent clause keeps the trust boundary.
+  # using Drive's raw query API, then copy by provider ID. The worker first
+  # scopes the remote to that declared folder, matching the historical trust
+  # boundary for channel audio that may live outside the render root. A path
+  # listing can collapse duplicate names; the raw query preserves every object.
   while IFS= read -r drive_folder_id; do
     [ -n "$drive_folder_id" ] || continue
     GROUP_ROWS_FILE="$(mktemp)"
@@ -133,6 +134,7 @@ if [ -s "$AUDIO_ROWS_FILE" ]; then
     mkdir -p "$GROUP_STAGE_DIR"
 
     awk -F $'\t' -v folder="$drive_folder_id" '$1 == folder' "$AUDIO_ROWS_FILE" > "$GROUP_ROWS_FILE"
+    set_drive_root "$drive_folder_id"
     rclone backend query gdrive: "'$drive_folder_id' in parents and trashed = false" \
       --config "$RCLONE_CONFIG_FILE" \
       --log-level ERROR > "$GROUP_LISTING_FILE"
