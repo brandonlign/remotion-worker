@@ -121,15 +121,14 @@ fi
 
 RESTORED_PRIVATE_AUDIO_COUNT=0
 if [ -s "$AUDIO_ROWS_FILE" ]; then
-  # Most channel SFX live in one approved Drive folder. Verify each requested
-  # provider ID from one folder listing, then copy all requested files from that
-  # folder in one transfer. This preserves exact identity checks while avoiding
-  # two Drive/rclone round trips per SFX cue.
+  # Verify every requested provider identity against the approved Drive folder,
+  # then copy by provider ID rather than by filename. Google Drive permits
+  # duplicate filenames; filename-only copying can silently select the wrong
+  # object even when the source locked the correct provider ID.
   while IFS= read -r drive_folder_id; do
     [ -n "$drive_folder_id" ] || continue
     GROUP_ROWS_FILE="$(mktemp)"
     GROUP_LISTING_FILE="$(mktemp)"
-    GROUP_NAMES_FILE="$(mktemp)"
     GROUP_STAGE_DIR="$PRIVATE_AUDIO_STAGE_DIR/$drive_folder_id"
     mkdir -p "$GROUP_STAGE_DIR"
 
@@ -141,50 +140,42 @@ if [ -s "$AUDIO_ROWS_FILE" ]; then
       --max-depth 1 \
       --log-level ERROR > "$GROUP_LISTING_FILE"
 
-    python3 - "$GROUP_ROWS_FILE" "$GROUP_LISTING_FILE" "$GROUP_NAMES_FILE" <<'PY'
+    python3 - "$GROUP_ROWS_FILE" "$GROUP_LISTING_FILE" <<'PY'
 import json
 import sys
 
-rows_path, listing_path, names_path = sys.argv[1:]
-expected = {}
+rows_path, listing_path = sys.argv[1:]
+expected = set()
 with open(rows_path, encoding="utf-8") as handle:
     for raw in handle:
         parts = raw.rstrip("\n").split("\t")
         if len(parts) != 4:
             raise SystemExit("The private channel audio restore request is incomplete.")
         _, drive_file_id, file_name, _ = parts
-        prior = expected.get(file_name)
-        if prior and prior != drive_file_id:
-            raise SystemExit("Conflicting provider IDs were requested for one private audio filename.")
-        expected[file_name] = drive_file_id
+        expected.add((file_name, drive_file_id))
 
 with open(listing_path, encoding="utf-8") as handle:
     listing = json.load(handle)
 actual = {
-    item.get("Name"): item.get("ID")
+    (item.get("Name"), item.get("ID"))
     for item in listing
     if isinstance(item, dict) and item.get("Name") and item.get("ID") and not item.get("IsDir")
 }
-for file_name, drive_file_id in expected.items():
-    if actual.get(file_name) != drive_file_id:
+for identity in expected:
+    if identity not in actual:
         raise SystemExit("A selected private channel audio file failed provider identity verification.")
-
-with open(names_path, "w", encoding="utf-8") as handle:
-    for file_name in expected:
-        handle.write(file_name + "\n")
 PY
-
-    rclone copy gdrive: "$GROUP_STAGE_DIR" \
-      --config "$RCLONE_CONFIG_FILE" \
-      --files-from "$GROUP_NAMES_FILE" \
-      --stats 0 \
-      --log-level ERROR
 
     while IFS=$'\t' read -r _ drive_file_id file_name asset_path; do
       if [ -z "$drive_file_id" ] || [ -z "$file_name" ] || [ -z "$asset_path" ]; then
         rclone_fail "The private channel audio restore request is incomplete."
       fi
       restored="$GROUP_STAGE_DIR/$file_name"
+      rm -f "$restored"
+      rclone backend copyid gdrive: "$drive_file_id" "$restored" \
+        --config "$RCLONE_CONFIG_FILE" \
+        --stats 0 \
+        --log-level ERROR >/dev/null
       if [ ! -s "$restored" ]; then
         rclone_fail "A selected private channel audio file was not restored."
       fi
@@ -194,7 +185,7 @@ PY
       RESTORED_PRIVATE_AUDIO_COUNT=$((RESTORED_PRIVATE_AUDIO_COUNT + 1))
     done < "$GROUP_ROWS_FILE"
 
-    rm -f "$GROUP_ROWS_FILE" "$GROUP_LISTING_FILE" "$GROUP_NAMES_FILE"
+    rm -f "$GROUP_ROWS_FILE" "$GROUP_LISTING_FILE"
   done < <(cut -f1 "$AUDIO_ROWS_FILE" | sort -u)
 fi
 

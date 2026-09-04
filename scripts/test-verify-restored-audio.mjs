@@ -119,7 +119,14 @@ try {
   assert.doesNotMatch(restoreScript, /VOICE_ROOT_PATH="Telic-Renders/);
   assert.doesNotMatch(restoreScript, /use_telic_renders_root/);
   assert.doesNotMatch(restoreScript, /TELIC_AUDIO_LOCATOR_DIR/);
-  assert.doesNotMatch(restoreScript, /backend copyid/);
+
+  // Provider-ID copy is allowed only for private channel assets whose source
+  // filename+ID tuple was first verified inside its declared Drive folder.
+  // Voice restoration remains path-rooted and no opaque locator cache returns.
+  assert.match(restoreScript, /expected\.add\(\(file_name, drive_file_id\)\)/);
+  assert.match(restoreScript, /\(item\.get\("Name"\), item\.get\("ID"\)\)/);
+  assert.match(restoreScript, /rclone backend copyid gdrive: "\$drive_file_id" "\$restored"/);
+  assert.equal((restoreScript.match(/backend copyid/g) ?? []).length, 1);
 } finally {
   await fs.rm(temp, {recursive: true, force: true});
 }
