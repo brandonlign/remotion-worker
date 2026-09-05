@@ -62,6 +62,9 @@ await fs.mkdir(path.join(sourceRoot, "automation", "current"), {recursive: true}
 await fs.mkdir(path.join(sourceRoot, "tools", "telic-vnext", "channels", "coffee"), {recursive: true});
 await fs.mkdir(path.join(sourceRoot, "tools", "telic-vnext", "universal"), {recursive: true});
 await fs.writeFile(path.join(sourceRoot, "automation", "current", "job.json"), JSON.stringify({jobId: "coffee-long-test", channelId: "coffee"}));
+await fs.writeFile(path.join(sourceRoot, "tools", "telic-vnext", "universal", "defaults.json"), JSON.stringify({
+  channel: {storage: {sfxFolderId: coffeeSfx.driveFolderId}},
+}));
 await fs.writeFile(path.join(sourceRoot, "tools", "telic-vnext", "channels", "coffee", "source-profile.json"), JSON.stringify({
   audio: {libraryPath: "tools/telic-vnext/universal/audio-library.json"},
 }));
@@ -84,6 +87,15 @@ await fs.writeFile(input, JSON.stringify({
 result = run(sourceRoot);
 assert.notEqual(result.status, 0);
 assert.match(result.stderr, /immutable source audio registry/);
+
+await fs.writeFile(input, JSON.stringify({
+  qualityVersion: 2,
+  music: coffeeMusic,
+  soundEffects: [{...coffeeSfx, driveFolderId: "different_sfx_folder_123456789"}],
+}));
+result = run(sourceRoot);
+assert.notEqual(result.status, 0);
+assert.match(result.stderr, /approved Universal SFX Drive folder|immutable source audio registry/);
 
 await fs.rm(root, {recursive: true, force: true});
 console.log("Private channel music/SFX restore request tests passed.");

@@ -29,8 +29,11 @@ const candidates = [
 ];
 const ALLOWED_PRIVATE_MUSIC_LIBRARIES = new Set(["telic-original-v1", "channel-library-v1"]);
 const ALLOWED_PRIVATE_SFX_LIBRARIES = new Set(["channel-library-v1", "universal-sfx-v1"]);
+const UNIVERSAL_SFX_LIBRARIES = new Set(["channel-library-v1", "universal-sfx-v1"]);
 
 let registered = null;
+let approvedUniversalSfxFolderId = null;
+let activeLibraryName = null;
 if (sourceRootArg) {
   const sourceRoot = path.resolve(sourceRootArg);
   const jobPath = path.join(sourceRoot, "automation", "current", "job.json");
@@ -47,7 +50,21 @@ if (sourceRootArg) {
   if (libraryPath !== sourceRoot && !libraryPath.startsWith(rootPrefix)) {
     throw new Error("Private channel audio library path escapes the source checkout.");
   }
+  const universalDefaultsPath = path.join(sourceRoot, "tools", "telic-vnext", "universal", "defaults.json");
+  const universalDefaults = JSON.parse(fs.readFileSync(universalDefaultsPath, "utf8"));
+  approvedUniversalSfxFolderId = universalDefaults?.channel?.storage?.sfxFolderId;
+  if (typeof approvedUniversalSfxFolderId !== "string" || !/^[A-Za-z0-9_-]{10,128}$/.test(approvedUniversalSfxFolderId)) {
+    throw new Error("The source checkout has no valid approved Universal SFX Drive folder.");
+  }
   const library = JSON.parse(fs.readFileSync(libraryPath, "utf8"));
+  activeLibraryName = typeof library?.library === "string" ? library.library.trim() : null;
+  if (UNIVERSAL_SFX_LIBRARIES.has(activeLibraryName)) {
+    for (const item of Array.isArray(library.sfx) ? library.sfx : []) {
+      if (item?.driveFolderId !== approvedUniversalSfxFolderId) {
+        throw new Error(`Source SFX registry entry ${item?.id ?? item?.fileName ?? "unknown"} is outside the approved Universal SFX Drive folder.`);
+      }
+    }
+  }
   registered = new Set();
   for (const kind of ["music", "sfx"]) {
     for (const item of Array.isArray(library[kind]) ? library[kind] : []) {
@@ -72,6 +89,11 @@ for (const {kind, item} of candidates) {
     }
   } else if (!ALLOWED_PRIVATE_SFX_LIBRARIES.has(item?.library)) {
     throw new Error("Private SFX request did not declare an approved channel or Universal SFX library.");
+  }
+
+  const requestLibraryName = typeof item?.library === "string" ? item.library.trim() : activeLibraryName;
+  if (kind === "sfx" && approvedUniversalSfxFolderId && UNIVERSAL_SFX_LIBRARIES.has(requestLibraryName) && item.driveFolderId !== approvedUniversalSfxFolderId) {
+    throw new Error(`Private SFX request must come from the approved Universal SFX Drive folder.`);
   }
 
   for (const [field, value] of [
