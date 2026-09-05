@@ -1,6 +1,6 @@
 {
   "jobId": "hifi-manual-command-7b5983da638ab724ea28",
   "sourceSha": "7370539763729d9d61b4752f669a651b8ebb3e99",
-  "revision": 30,
-  "mode": "long-preview"
+  "revision": 31,
+  "mode": "render"
 }
